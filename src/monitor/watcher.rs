@@ -3,13 +3,14 @@
 //! Provides continuous network scanning in background thread
 //! Uses callbacks for event notification (Tauri-agnostic)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 use super::events::{DeviceSnapshot, MonitoringStatus, NetworkEvent};
+use super::passive_integration::{passive_device_to_snapshot, start_passive_listeners};
 use crate::config::{DEFAULT_MONITOR_INTERVAL, MAX_MONITOR_INTERVAL, MIN_MONITOR_INTERVAL};
 use crate::{
     active_arp_scan, calculate_subnet_ips, dns_scan, find_valid_interface, infer_device_type,
@@ -37,6 +38,8 @@ pub struct BackgroundMonitor {
     previous_devices: Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
     /// Recently-offline devices for "came online" event correlation.
     offline_devices: Arc<Mutex<HashMap<String, OfflineDeviceSnapshot>>>,
+    /// Live passive discoveries from mDNS/ARP listeners.
+    passive_devices: Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
 }
 
 impl BackgroundMonitor {
@@ -48,6 +51,7 @@ impl BackgroundMonitor {
             last_scan_time: Arc::new(Mutex::new(None)),
             previous_devices: Arc::new(Mutex::new(HashMap::new())),
             offline_devices: Arc::new(Mutex::new(HashMap::new())),
+            passive_devices: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -86,8 +90,63 @@ impl BackgroundMonitor {
         let last_scan_time = Arc::clone(&self.last_scan_time);
         let previous_devices = Arc::clone(&self.previous_devices);
         let offline_devices = Arc::clone(&self.offline_devices);
+        let passive_devices = Arc::clone(&self.passive_devices);
         let interval_seconds = Arc::clone(&self.interval_seconds);
         let cb = Arc::clone(&callback);
+
+        // Start passive listeners (best-effort) and merge into the monitor state.
+        let is_running_for_passive = Arc::clone(&self.is_running);
+        let passive_map = Arc::clone(&self.passive_devices);
+        let cb_passive = Arc::clone(&callback);
+
+        match start_passive_listeners().await {
+            Ok((mut mdns_rx, mut arp_rx_opt)) => {
+                tokio::spawn(async move {
+                    let mut arp_ip_to_mac: HashMap<String, String> = HashMap::new();
+
+                    tracing::info!("[MONITOR] Passive listener bridge started");
+
+                    while is_running_for_passive.load(Ordering::SeqCst) {
+                        tokio::select! {
+                            mdns_device = mdns_rx.recv() => {
+                                match mdns_device {
+                                    Some(device) => {
+                                        let mut snapshot = passive_device_to_snapshot(device);
+                                        if let Some(mac) = arp_ip_to_mac.get(&snapshot.ip) {
+                                            snapshot.mac = mac.clone();
+                                        }
+                                        upsert_passive_device(&passive_map, snapshot, &*cb_passive).await;
+                                    }
+                                    None => break,
+                                }
+                            }
+                            arp_event = async {
+                                if let Some(rx) = arp_rx_opt.as_mut() {
+                                    rx.recv().await
+                                } else {
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    None
+                                }
+                            } => {
+                                if let Some(event) = arp_event {
+                                    arp_ip_to_mac.insert(event.sender_ip.clone(), event.sender_mac.clone());
+                                    apply_arp_enrichment(&passive_map, &event.sender_ip, &event.sender_mac).await;
+                                } else if arp_rx_opt.is_some() {
+                                    tracing::warn!("[MONITOR] ARP passive channel closed");
+                                    arp_rx_opt = None;
+                                }
+                            }
+                            _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+                        }
+                    }
+
+                    tracing::info!("[MONITOR] Passive listener bridge stopped");
+                });
+            }
+            Err(e) => {
+                tracing::warn!("[MONITOR] Passive listeners unavailable: {}", e);
+            }
+        }
 
         // Spawn background scanning task
         tokio::spawn(async move {
@@ -111,6 +170,8 @@ impl BackgroundMonitor {
                 // Run the actual scan
                 match run_background_scan(&*cb).await {
                     Ok(devices) => {
+                        let merged_devices =
+                            merge_active_and_passive_devices(devices, &passive_devices).await;
                         let duration = start.elapsed().as_millis() as u64;
 
                         // Update last scan time
@@ -119,19 +180,19 @@ impl BackgroundMonitor {
                         // Detect changes
                         let mut prev = previous_devices.lock().await;
                         let mut offline = offline_devices.lock().await;
-                        detect_and_emit_changes(&*cb, &mut prev, &mut offline, &devices);
+                        detect_and_emit_changes(&*cb, &mut prev, &mut offline, &merged_devices);
 
                         // Emit scan completed
                         (*cb)(NetworkEvent::ScanCompleted {
                             scan_number: current_scan,
-                            hosts_found: devices.len(),
+                            hosts_found: merged_devices.len(),
                             duration_ms: duration,
                         });
 
                         tracing::debug!(
                             "[MONITOR] Scan #{} complete: {} hosts in {}ms",
                             current_scan,
-                            devices.len(),
+                            merged_devices.len(),
                             duration
                         );
                     }
@@ -286,6 +347,82 @@ where
         .collect();
 
     Ok(devices)
+}
+
+fn is_unknown_passive_mac(mac: &str) -> bool {
+    mac.starts_with("unknown_")
+}
+
+async fn upsert_passive_device<F>(
+    passive_devices: &Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
+    snapshot: DeviceSnapshot,
+    callback: &F,
+) where
+    F: Fn(NetworkEvent),
+{
+    let key = snapshot.mac.clone();
+
+    let mut map = passive_devices.lock().await;
+    let is_new = !map.contains_key(&key);
+    map.insert(key, snapshot.clone());
+    drop(map);
+
+    if is_new {
+        callback(NetworkEvent::NewDeviceDiscovered {
+            ip: snapshot.ip,
+            mac: snapshot.mac,
+            hostname: snapshot.hostname,
+            device_type: snapshot.device_type,
+        });
+    }
+}
+
+async fn apply_arp_enrichment(
+    passive_devices: &Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
+    sender_ip: &str,
+    sender_mac: &str,
+) {
+    let mut map = passive_devices.lock().await;
+    let matching_keys: Vec<String> = map
+        .iter()
+        .filter(|(_, snapshot)| snapshot.ip == sender_ip && snapshot.mac != sender_mac)
+        .map(|(key, _)| key.clone())
+        .collect();
+
+    for old_key in matching_keys {
+        if let Some(mut snapshot) = map.remove(&old_key) {
+            snapshot.mac = sender_mac.to_string();
+            map.insert(snapshot.mac.clone(), snapshot);
+        }
+    }
+}
+
+async fn merge_active_and_passive_devices(
+    active_devices: Vec<DeviceSnapshot>,
+    passive_devices: &Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
+) -> Vec<DeviceSnapshot> {
+    let passive = passive_devices.lock().await;
+    let mut merged = active_devices;
+
+    let mut seen_macs: HashSet<String> = merged.iter().map(|d| d.mac.clone()).collect();
+    let mut seen_ips: HashSet<String> = merged.iter().map(|d| d.ip.clone()).collect();
+
+    for snapshot in passive.values() {
+        if seen_macs.contains(&snapshot.mac) {
+            continue;
+        }
+
+        // Unknown passive MACs are treated as soft identities; skip them when active scan already has same IP.
+        if is_unknown_passive_mac(&snapshot.mac) && seen_ips.contains(&snapshot.ip) {
+            continue;
+        }
+
+        merged.push(snapshot.clone());
+        seen_macs.insert(snapshot.mac.clone());
+        seen_ips.insert(snapshot.ip.clone());
+    }
+
+    merged
 }
 
 /// Detect changes between scans and emit events
