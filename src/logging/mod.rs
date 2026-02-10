@@ -7,7 +7,7 @@ pub mod macros;
 
 use std::path::PathBuf;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Initialize the logging system
 ///
@@ -55,11 +55,19 @@ pub fn init_logging() -> Result<PathBuf, Box<dyn std::error::Error>> {
     let filter = EnvFilter::try_from_default_env().or_else(|_| EnvFilter::try_new("info"))?;
 
     // Initialize subscriber with both layers
-    tracing_subscriber::registry()
+    let init_result = tracing_subscriber::registry()
         .with(filter)
         .with(console_layer)
         .with(file_layer)
-        .init();
+        .try_init();
+
+    if let Err(e) = init_result {
+        // Avoid panicking when another subsystem/test already installed a global subscriber.
+        if e.to_string().contains("already been set") {
+            return Ok(log_dir);
+        }
+        return Err(Box::new(e));
+    }
 
     tracing::info!("Logging initialized. Log directory: {}", log_dir.display());
 
