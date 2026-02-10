@@ -12,8 +12,9 @@ use std::time::Instant;
 
 use nexus_core::{
     HostInfo, InterfaceInfo, NeighborInfo, SNMP_ENABLED, ScanResult, active_arp_scan,
-    calculate_risk_score, calculate_subnet_ips, dns_scan, find_valid_interface, guess_os_from_ttl,
-    icmp_scan, infer_device_type, lookup_vendor_info, snmp_enrich, tcp_probe_scan,
+    calculate_risk_score, calculate_subnet_ips, dns_scan, find_interface_by_name,
+    find_valid_interface, guess_os_from_ttl, icmp_scan, infer_device_type, list_valid_interfaces,
+    lookup_vendor_info, snmp_enrich, tcp_probe_scan,
 };
 
 /// Logs a message to stderr
@@ -28,6 +29,102 @@ macro_rules! log_error {
     ($($arg:tt)*) => {
         nexus_core::log_error!($($arg)*);
     };
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CliCommand {
+    Scan { interface: Option<String> },
+    Interfaces,
+    Help,
+    Version,
+}
+
+fn version_text() -> String {
+    format!("nexus-core {}", env!("CARGO_PKG_VERSION"))
+}
+
+fn usage_text() -> String {
+    format!(
+        "{version}
+NEXUS Core Engine — Network Discovery CLI
+
+Usage:
+  nexus-core [scan] [--interface <NAME>]
+  nexus-core interfaces
+  nexus-core --help
+  nexus-core --version
+
+Options:
+  -i, --interface <NAME>  Select network interface by exact name
+  -h, --help              Show this help text
+  -V, --version           Show version",
+        version = version_text()
+    )
+}
+
+fn parse_cli_args<I, S>(args: I) -> Result<CliCommand>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut iter = args.into_iter();
+    let _program_name = iter.next();
+
+    let mut command: Option<String> = None;
+    let mut interface: Option<String> = None;
+
+    while let Some(arg) = iter.next() {
+        let arg = arg.as_ref();
+        match arg {
+            "-h" | "--help" => return Ok(CliCommand::Help),
+            "-V" | "--version" => return Ok(CliCommand::Version),
+            "scan" | "interfaces" => {
+                if command.as_deref().is_some_and(|existing| existing != arg) {
+                    return Err(anyhow::anyhow!(
+                        "Multiple commands provided. Use only one command.\n\n{}",
+                        usage_text()
+                    ));
+                }
+                command = Some(arg.to_string());
+            }
+            "-i" | "--interface" => {
+                let value = iter.next().ok_or_else(|| {
+                    anyhow::anyhow!("Missing value for --interface.\n\n{}", usage_text())
+                })?;
+                interface = Some(value.as_ref().to_string());
+            }
+            _ if arg.starts_with("--interface=") => {
+                let value = arg.split_once('=').map(|(_, v)| v).unwrap_or_default();
+                if value.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Missing value for --interface.\n\n{}",
+                        usage_text()
+                    ));
+                }
+                interface = Some(value.to_string());
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Unknown argument: {arg}\n\n{}",
+                    usage_text()
+                ));
+            }
+        }
+    }
+
+    match command.as_deref().unwrap_or("scan") {
+        "scan" => Ok(CliCommand::Scan { interface }),
+        "interfaces" => {
+            if interface.is_some() {
+                return Err(anyhow::anyhow!(
+                    "--interface is only valid with scan.\n\n{}",
+                    usage_text()
+                ));
+            }
+            Ok(CliCommand::Interfaces)
+        }
+        _ => unreachable!(),
+    }
 }
 
 /// Performs the complete network scan
@@ -219,14 +316,8 @@ async fn main() {
         eprintln!("[WARN] Failed to initialize structured logging: {}", e);
     }
 
-    match run().await {
-        Ok(result) => match serde_json::to_string_pretty(&result) {
-            Ok(json) => println!("{}", json),
-            Err(e) => {
-                log_error!("Failed to serialize scan result to JSON: {}", e);
-                std::process::exit(1);
-            }
-        },
+    match run(std::env::args()).await {
+        Ok(()) => {}
         Err(e) => {
             log_error!("{:#}", e);
             std::process::exit(1);
@@ -235,20 +326,110 @@ async fn main() {
 }
 
 /// Main entry point
-async fn run() -> Result<ScanResult> {
-    log_stderr!("NEXUS Core Engine — Network Discovery v0.4.0-dev");
-    log_stderr!("Active ARP + ICMP + TCP Scanning Mode");
-    log_stderr!("================================================");
+async fn run<I, S>(args: I) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    match parse_cli_args(args)? {
+        CliCommand::Help => {
+            println!("{}", usage_text());
+            Ok(())
+        }
+        CliCommand::Version => {
+            println!("{}", version_text());
+            Ok(())
+        }
+        CliCommand::Interfaces => {
+            let interfaces = list_valid_interfaces();
+            if interfaces.is_empty() {
+                println!("No valid IPv4 network interfaces found.");
+            } else {
+                for interface in interfaces {
+                    println!("{}", interface);
+                }
+            }
+            Ok(())
+        }
+        CliCommand::Scan { interface } => {
+            log_stderr!(
+                "NEXUS Core Engine — Network Discovery v{}",
+                env!("CARGO_PKG_VERSION")
+            );
+            log_stderr!("Active ARP + ICMP + TCP Scanning Mode");
+            log_stderr!("================================================");
 
-    log_stderr!("Detecting network interfaces...");
-    let interface = find_valid_interface()?;
+            let selected_interface = match interface {
+                Some(name) => {
+                    log_stderr!("Using requested interface: {}", name);
+                    find_interface_by_name(&name)?
+                }
+                None => {
+                    log_stderr!("Detecting network interfaces...");
+                    find_valid_interface()?
+                }
+            };
 
-    scan_network(&interface).await
+            let result = scan_network(&selected_interface).await?;
+            let json =
+                serde_json::to_string_pretty(&result).context("Failed to serialize scan result")?;
+            println!("{}", json);
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_help_flag() {
+        let args = ["nexus-core", "--help"];
+        let parsed = parse_cli_args(args).expect("help args should parse");
+        assert_eq!(parsed, CliCommand::Help);
+    }
+
+    #[test]
+    fn parse_version_flag() {
+        let args = ["nexus-core", "--version"];
+        let parsed = parse_cli_args(args).expect("version args should parse");
+        assert_eq!(parsed, CliCommand::Version);
+    }
+
+    #[test]
+    fn parse_default_scan_command() {
+        let args = ["nexus-core"];
+        let parsed = parse_cli_args(args).expect("default args should parse");
+        assert_eq!(parsed, CliCommand::Scan { interface: None });
+    }
+
+    #[test]
+    fn parse_scan_with_interface_flag() {
+        let args = ["nexus-core", "scan", "--interface", "Ethernet"];
+        let parsed = parse_cli_args(args).expect("scan with interface should parse");
+        assert_eq!(
+            parsed,
+            CliCommand::Scan {
+                interface: Some("Ethernet".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn parse_interfaces_command() {
+        let args = ["nexus-core", "interfaces"];
+        let parsed = parse_cli_args(args).expect("interfaces command should parse");
+        assert_eq!(parsed, CliCommand::Interfaces);
+    }
+
+    #[test]
+    fn parse_unknown_argument_errors() {
+        let args = ["nexus-core", "--unknown"];
+        let err = parse_cli_args(args).expect_err("unknown flag should fail");
+        let message = err.to_string();
+        assert!(message.contains("Unknown argument"));
+    }
 
     #[test]
     fn test_scan_result_serialization() {

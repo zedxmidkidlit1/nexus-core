@@ -128,6 +128,16 @@ cargo build
 # Run CLI scanner (outputs JSON to stdout)
 cargo run
 
+# Show CLI help / version
+cargo run -- --help
+cargo run -- --version
+
+# List valid scan interfaces
+cargo run -- interfaces
+
+# Scan a specific interface
+cargo run -- scan --interface "<INTERFACE_NAME>"
+
 # Enable optional PDF export backend
 cargo build --features pdf-export
 
