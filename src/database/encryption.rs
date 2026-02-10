@@ -11,7 +11,7 @@ use argon2::{Algorithm, Argon2, Params, Version};
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 const APP_KDF_CONTEXT: &str = "netmapper-2026-secure-aes256-gcm";
 const ARGON2_SALT: &[u8] = b"netmapper-2026-kdf-salt";
@@ -99,7 +99,7 @@ fn derive_key_from_string_legacy_sha256(input: &str) -> Result<[u8; 32], Box<dyn
 /// Creates an encrypted copy of the database with .encrypted extension
 pub fn encrypt_database_file<P: AsRef<Path>>(db_path: P) -> Result<String, Box<dyn Error>> {
     let db_path = db_path.as_ref();
-    let encrypted_path = db_path.with_extension("db.encrypted");
+    let encrypted_path = encrypted_output_path(db_path);
 
     tracing::info!("Encrypting database: {:?} -> {:?}", db_path, encrypted_path);
 
@@ -141,7 +141,7 @@ pub fn encrypt_database_file<P: AsRef<Path>>(db_path: P) -> Result<String, Box<d
 /// Decrypts a .encrypted file back to .db
 pub fn decrypt_database_file<P: AsRef<Path>>(encrypted_path: P) -> Result<String, Box<dyn Error>> {
     let encrypted_path = encrypted_path.as_ref();
-    let db_path = encrypted_path.with_extension("db");
+    let db_path = decrypted_output_path(encrypted_path);
 
     tracing::info!("Decrypting database: {:?} -> {:?}", encrypted_path, db_path);
 
@@ -207,6 +207,23 @@ fn generate_nonce() -> [u8; 12] {
     let mut nonce = [0u8; 12];
     OsRng.fill_bytes(&mut nonce);
     nonce
+}
+
+fn encrypted_output_path(db_path: &Path) -> PathBuf {
+    let mut output = db_path.as_os_str().to_os_string();
+    output.push(".encrypted");
+    PathBuf::from(output)
+}
+
+fn decrypted_output_path(encrypted_path: &Path) -> PathBuf {
+    match encrypted_path.extension().and_then(|ext| ext.to_str()) {
+        Some("encrypted") => encrypted_path.with_extension(""),
+        _ => {
+            let mut output = encrypted_path.as_os_str().to_os_string();
+            output.push(".decrypted.db");
+            PathBuf::from(output)
+        }
+    }
 }
 
 #[cfg(test)]
