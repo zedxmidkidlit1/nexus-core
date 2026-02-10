@@ -7,6 +7,7 @@ use pnet::datalink::{self, Channel, NetworkInterface};
 use pnet::packet::arp::{ArpOperations, ArpPacket};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket};
 use pnet::packet::Packet;
+use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// ARP event captured from network
@@ -38,64 +39,77 @@ impl ArpMonitor {
         tx: mpsc::Sender<ArpEvent>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let interface_name = self.interface.name.clone();
-
-        // Create datalink channel in non-promiscuous mode
-        let channel = datalink::channel(&self.interface, Default::default())?;
-
-        let mut rx = match channel {
-            Channel::Ethernet(_, rx) => rx,
-            _ => return Err("Unsupported channel type".into()),
-        };
+        let interface = self.interface.clone();
 
         tracing::info!("🎧 Started ARP monitoring on interface: {}", interface_name);
 
-        // Listen for ARP packets
-        loop {
-            match rx.next() {
-                Ok(packet) => {
-                    // Parse Ethernet frame
-                    if let Some(ethernet) = EthernetPacket::new(packet) {
-                        // Check if it's an ARP packet
-                        if ethernet.get_ethertype() == EtherTypes::Arp {
-                            if let Some(arp) = ArpPacket::new(ethernet.payload()) {
-                                let event = ArpEvent {
-                                    sender_mac: format!(
-                                        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
-                                        arp.get_sender_hw_addr().0,
-                                        arp.get_sender_hw_addr().1,
-                                        arp.get_sender_hw_addr().2,
-                                        arp.get_sender_hw_addr().3,
-                                        arp.get_sender_hw_addr().4,
-                                        arp.get_sender_hw_addr().5,
-                                    ),
-                                    sender_ip: arp.get_sender_proto_addr().to_string(),
-                                    target_ip: arp.get_target_proto_addr().to_string(),
-                                    is_request: arp.get_operation() == ArpOperations::Request,
-                                    timestamp: chrono::Utc::now(),
-                                };
+        // Run packet capture in a blocking worker thread to avoid stalling Tokio runtime workers.
+        let worker_result = tokio::task::spawn_blocking(move || -> Result<(), String> {
+            // Create datalink channel in non-promiscuous mode
+            let channel =
+                datalink::channel(&interface, Default::default()).map_err(|e| e.to_string())?;
 
-                                tracing::debug!(
-                                    "🎧 ARP: {} ({}) {} {}",
-                                    event.sender_ip,
-                                    event.sender_mac,
-                                    if event.is_request { "→" } else { "←" },
-                                    event.target_ip
-                                );
+            let mut rx = match channel {
+                Channel::Ethernet(_, rx) => rx,
+                _ => return Err("Unsupported channel type".to_string()),
+            };
 
-                                // Send event
-                                if tx.send(event).await.is_err() {
-                                    tracing::warn!("ARP monitoring channel closed");
-                                    break;
+            // Listen for ARP packets
+            loop {
+                match rx.next() {
+                    Ok(packet) => {
+                        // Parse Ethernet frame
+                        if let Some(ethernet) = EthernetPacket::new(packet) {
+                            // Check if it's an ARP packet
+                            if ethernet.get_ethertype() == EtherTypes::Arp {
+                                if let Some(arp) = ArpPacket::new(ethernet.payload()) {
+                                    let event = ArpEvent {
+                                        sender_mac: format!(
+                                            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+                                            arp.get_sender_hw_addr().0,
+                                            arp.get_sender_hw_addr().1,
+                                            arp.get_sender_hw_addr().2,
+                                            arp.get_sender_hw_addr().3,
+                                            arp.get_sender_hw_addr().4,
+                                            arp.get_sender_hw_addr().5,
+                                        ),
+                                        sender_ip: arp.get_sender_proto_addr().to_string(),
+                                        target_ip: arp.get_target_proto_addr().to_string(),
+                                        is_request: arp.get_operation() == ArpOperations::Request,
+                                        timestamp: chrono::Utc::now(),
+                                    };
+
+                                    tracing::debug!(
+                                        "🎧 ARP: {} ({}) {} {}",
+                                        event.sender_ip,
+                                        event.sender_mac,
+                                        if event.is_request { "→" } else { "←" },
+                                        event.target_ip
+                                    );
+
+                                    // Send event from blocking thread.
+                                    if tx.blocking_send(event).is_err() {
+                                        tracing::warn!("ARP monitoring channel closed");
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    tracing::error!("ARP monitoring error: {}", e);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    Err(e) => {
+                        tracing::error!("ARP monitoring error: {}", e);
+                        std::thread::sleep(Duration::from_millis(100));
+                    }
                 }
             }
+
+            Ok(())
+        })
+        .await
+        .map_err(|e| std::io::Error::other(format!("ARP monitor worker join error: {}", e)))?;
+
+        if let Err(e) = worker_result {
+            return Err(std::io::Error::other(e).into());
         }
 
         Ok(())
