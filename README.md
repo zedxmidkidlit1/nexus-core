@@ -111,10 +111,11 @@ This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../S
 
 ## Requirements
 
-- **Rust** toolchain (stable, 2021 edition)
+- **Rust** toolchain (stable `1.93+`, 2024 edition)
 - **Windows**: [Npcap](https://npcap.com/) + run as Administrator
 - **Linux**: `libpcap-dev`, `build-essential`
 - **macOS**: `libpcap` (pre-installed or via Homebrew)
+- **PDF export feature**: build with `--features pdf-export` (Krilla backend; requires system fonts)
 
 ---
 
@@ -126,6 +127,9 @@ cargo build
 
 # Run CLI scanner (outputs JSON to stdout)
 cargo run
+
+# Enable optional PDF export backend
+cargo build --features pdf-export
 
 # Run tests
 cargo test --all-targets
