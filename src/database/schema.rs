@@ -33,6 +33,7 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
             last_ip TEXT,
             vendor TEXT,
             is_randomized INTEGER NOT NULL DEFAULT 0,
+            risk_score INTEGER NOT NULL DEFAULT 0,
             device_type TEXT,
             hostname TEXT,
             os_guess TEXT,
@@ -159,6 +160,28 @@ pub fn create_tables(conn: &Connection) -> Result<()> {
         .context("Failed to migrate devices table with is_randomized column")?;
     }
 
+    let has_devices_risk_score: bool = conn
+        .prepare("PRAGMA table_info(devices)")
+        .and_then(|mut stmt| {
+            let mut rows = stmt.query([])?;
+            while let Some(row) = rows.next()? {
+                let col_name: String = row.get(1)?;
+                if col_name == "risk_score" {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        })
+        .context("Failed to inspect devices table schema for risk_score")?;
+
+    if !has_devices_risk_score {
+        conn.execute(
+            "ALTER TABLE devices ADD COLUMN risk_score INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+        .context("Failed to migrate devices table with risk_score column")?;
+    }
+
     let has_history_randomized: bool = conn
         .prepare("PRAGMA table_info(device_history)")
         .and_then(|mut stmt| {
@@ -268,5 +291,44 @@ mod tests {
             == 1;
 
         assert!(dedupe_index_exists, "idx_alerts_dedupe should exist after migration");
+    }
+
+    #[test]
+    fn test_legacy_devices_schema_migrates_risk_score_column() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        conn.execute_batch(
+            r#"
+            CREATE TABLE devices (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mac TEXT UNIQUE NOT NULL,
+                first_seen TEXT NOT NULL DEFAULT (datetime('now')),
+                last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+                last_ip TEXT,
+                vendor TEXT,
+                device_type TEXT,
+                hostname TEXT,
+                os_guess TEXT,
+                custom_name TEXT,
+                notes TEXT
+            );
+            "#,
+        )
+        .unwrap();
+
+        create_tables(&conn).expect("Legacy devices schema migration should succeed");
+
+        let has_risk_score: bool = conn
+            .prepare("PRAGMA table_info(devices)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .any(|name| name == "risk_score");
+
+        assert!(
+            has_risk_score,
+            "devices.risk_score should be added for legacy DBs"
+        );
     }
 }

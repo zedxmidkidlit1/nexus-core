@@ -92,9 +92,10 @@ fn upsert_device_from_host(conn: &Connection, host: &HostInfo, scan_id: i64) -> 
                 last_ip = ?2,
                 vendor = COALESCE(?3, vendor),
                 is_randomized = ?4,
-                device_type = COALESCE(?5, device_type),
-                hostname = COALESCE(?6, hostname),
-                os_guess = COALESCE(?7, os_guess)
+                risk_score = ?5,
+                device_type = COALESCE(?6, device_type),
+                hostname = COALESCE(?7, hostname),
+                os_guess = COALESCE(?8, os_guess)
             WHERE id = ?1
             "#,
             params![
@@ -102,6 +103,7 @@ fn upsert_device_from_host(conn: &Connection, host: &HostInfo, scan_id: i64) -> 
                 &host.ip,
                 &host.vendor,
                 if host.is_randomized { 1 } else { 0 },
+                host.risk_score as i32,
                 &host.device_type,
                 &host.hostname,
                 &host.os_guess,
@@ -114,14 +116,15 @@ fn upsert_device_from_host(conn: &Connection, host: &HostInfo, scan_id: i64) -> 
         conn.execute(
             r#"
             INSERT INTO devices (
-                mac, last_ip, vendor, is_randomized, device_type, hostname, os_guess
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                mac, last_ip, vendor, is_randomized, risk_score, device_type, hostname, os_guess
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             "#,
             params![
                 &host.mac,
                 &host.ip,
                 &host.vendor,
                 if host.is_randomized { 1 } else { 0 },
+                host.risk_score as i32,
                 &host.device_type,
                 &host.hostname,
                 &host.os_guess,
@@ -202,7 +205,7 @@ pub fn get_recent_scans(conn: &Connection, limit: i32) -> Result<Vec<ScanRecord>
 pub fn get_all_devices(conn: &Connection) -> Result<Vec<DeviceRecord>> {
     let mut stmt = conn.prepare(
         r#"
-        SELECT id, mac, first_seen, last_seen, last_ip, vendor,
+        SELECT id, mac, first_seen, last_seen, last_ip, vendor, risk_score,
                device_type, hostname, os_guess, custom_name, notes
         FROM devices
         ORDER BY last_seen DESC
@@ -218,11 +221,12 @@ pub fn get_all_devices(conn: &Connection) -> Result<Vec<DeviceRecord>> {
                 last_seen: parse_datetime_column(row.get::<_, String>(3)?, 3)?,
                 last_ip: row.get(4)?,
                 vendor: row.get(5)?,
-                device_type: row.get(6)?,
-                hostname: row.get(7)?,
-                os_guess: row.get(8)?,
-                custom_name: row.get(9)?,
-                notes: row.get(10)?,
+                risk_score: row.get(6)?,
+                device_type: row.get(7)?,
+                hostname: row.get(8)?,
+                os_guess: row.get(9)?,
+                custom_name: row.get(10)?,
+                notes: row.get(11)?,
                 security_grade: None,
             })
         })?
@@ -235,7 +239,7 @@ pub fn get_all_devices(conn: &Connection) -> Result<Vec<DeviceRecord>> {
 pub fn get_device_by_mac(conn: &Connection, mac: &str) -> Result<Option<DeviceRecord>> {
     let result = conn.query_row(
         r#"
-        SELECT id, mac, first_seen, last_seen, last_ip, vendor,
+        SELECT id, mac, first_seen, last_seen, last_ip, vendor, risk_score,
                device_type, hostname, os_guess, custom_name, notes
         FROM devices WHERE mac = ?1
         "#,
@@ -248,11 +252,12 @@ pub fn get_device_by_mac(conn: &Connection, mac: &str) -> Result<Option<DeviceRe
                 last_seen: parse_datetime_column(row.get::<_, String>(3)?, 3)?,
                 last_ip: row.get(4)?,
                 vendor: row.get(5)?,
-                device_type: row.get(6)?,
-                hostname: row.get(7)?,
-                os_guess: row.get(8)?,
-                custom_name: row.get(9)?,
-                notes: row.get(10)?,
+                risk_score: row.get(6)?,
+                device_type: row.get(7)?,
+                hostname: row.get(8)?,
+                os_guess: row.get(9)?,
+                custom_name: row.get(10)?,
+                notes: row.get(11)?,
                 security_grade: None,
             })
         },

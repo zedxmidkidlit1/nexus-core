@@ -30,6 +30,7 @@ pub struct DeviceRecord {
     pub last_seen: DateTime<Utc>,
     pub last_ip: Option<String>,
     pub vendor: Option<String>,
+    pub risk_score: i32,
     pub device_type: Option<String>,
     pub hostname: Option<String>,
     pub os_guess: Option<String>,

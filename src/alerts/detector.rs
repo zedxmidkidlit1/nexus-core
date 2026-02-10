@@ -169,6 +169,7 @@ mod tests {
             last_seen: now - Duration::minutes(minutes_ago),
             last_ip: Some(ip.to_string()),
             vendor: Some("TestVendor".to_string()),
+            risk_score: 0,
             device_type: Some("UNKNOWN".to_string()),
             hostname: Some("test-host".to_string()),
             os_guess: None,

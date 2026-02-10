@@ -43,7 +43,7 @@ pub fn export_devices_csv(devices: &[DeviceRecord]) -> Result<String> {
             device.vendor.as_deref().unwrap_or("Unknown"),
             device.device_type.as_deref().unwrap_or("Unknown"),
             device.os_guess.as_deref().unwrap_or("Unknown"),
-            "0", // Risk score not stored in DeviceRecord
+            &device.risk_score.to_string(),
             &device.first_seen.to_rfc3339(),
             &device.last_seen.to_rfc3339(),
             status,
