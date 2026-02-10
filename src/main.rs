@@ -19,14 +19,14 @@ use nexus_core::{
 /// Logs a message to stderr
 macro_rules! log_stderr {
     ($($arg:tt)*) => {
-        eprintln!("[INFO] {}", format!($($arg)*));
+        nexus_core::log_stderr!($($arg)*);
     };
 }
 
 /// Logs an error message to stderr
 macro_rules! log_error {
     ($($arg:tt)*) => {
-        eprintln!("[ERROR] {}", format!($($arg)*));
+        nexus_core::log_error!($($arg)*);
     };
 }
 
@@ -206,6 +206,10 @@ async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult> {
 
 #[tokio::main]
 async fn main() {
+    if let Err(e) = nexus_core::logging::init_logging() {
+        eprintln!("[WARN] Failed to initialize structured logging: {}", e);
+    }
+
     match run().await {
         Ok(result) => {
             match serde_json::to_string_pretty(&result) {

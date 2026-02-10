@@ -18,14 +18,14 @@ use crate::config::{SNMP_COMMUNITY, SNMP_PORT, SNMP_TIMEOUT};
 /// Logs a message to stderr
 macro_rules! log_stderr {
     ($($arg:tt)*) => {
-        eprintln!("[INFO] {}", format!($($arg)*));
+        tracing::info!($($arg)*);
     };
 }
 
 /// Logs a warning to stderr
 macro_rules! log_warn {
     ($($arg:tt)*) => {
-        eprintln!("[WARN] {}", format!($($arg)*));
+        tracing::warn!($($arg)*);
     };
 }
 

@@ -23,7 +23,7 @@ const BROADCAST_MAC: MacAddr = MacAddr(0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
 /// Logs a message to stderr
 macro_rules! log_stderr {
     ($($arg:tt)*) => {
-        eprintln!("[INFO] {}", format!($($arg)*));
+        tracing::info!($($arg)*);
     };
 }
 
