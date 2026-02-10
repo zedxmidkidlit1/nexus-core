@@ -233,7 +233,9 @@ where
         message: format!("TCP probing {} hosts...", arp_hosts.len()),
     });
 
-    let port_results = tcp_probe_scan(&arp_hosts).await.unwrap_or_default();
+    let port_results = tcp_probe_scan(&arp_hosts)
+        .await
+        .map_err(|e| format!("TCP scan error: {}", e))?;
 
     // Emit progress: DNS lookup
     callback(NetworkEvent::ScanProgress {
