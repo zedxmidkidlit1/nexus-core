@@ -40,6 +40,8 @@ pub struct BackgroundMonitor {
     offline_devices: Arc<Mutex<HashMap<String, OfflineDeviceSnapshot>>>,
     /// Live passive discoveries from mDNS/ARP listeners.
     passive_devices: Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
+    /// Session-wide unique device identities seen across all scans.
+    unique_devices_seen: Arc<Mutex<HashSet<String>>>,
 }
 
 impl BackgroundMonitor {
@@ -52,6 +54,7 @@ impl BackgroundMonitor {
             previous_devices: Arc::new(Mutex::new(HashMap::new())),
             offline_devices: Arc::new(Mutex::new(HashMap::new())),
             passive_devices: Arc::new(Mutex::new(HashMap::new())),
+            unique_devices_seen: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -75,6 +78,7 @@ impl BackgroundMonitor {
         *self.interval_seconds.lock().await = interval_secs;
         self.is_running.store(true, Ordering::SeqCst);
         self.scan_count.store(0, Ordering::SeqCst);
+        self.unique_devices_seen.lock().await.clear();
 
         // Wrap callback in Arc
         let callback = Arc::new(callback);
@@ -91,6 +95,7 @@ impl BackgroundMonitor {
         let previous_devices = Arc::clone(&self.previous_devices);
         let offline_devices = Arc::clone(&self.offline_devices);
         let passive_devices = Arc::clone(&self.passive_devices);
+        let unique_devices_seen = Arc::clone(&self.unique_devices_seen);
         let interval_seconds = Arc::clone(&self.interval_seconds);
         let cb = Arc::clone(&callback);
 
@@ -172,6 +177,12 @@ impl BackgroundMonitor {
                     Ok(devices) => {
                         let merged_devices =
                             merge_active_and_passive_devices(devices, &passive_devices).await;
+                        {
+                            let mut unique = unique_devices_seen.lock().await;
+                            for device in &merged_devices {
+                                unique.insert(device.mac.clone());
+                            }
+                        }
                         let duration = start.elapsed().as_millis() as u64;
 
                         // Update last scan time
@@ -226,7 +237,9 @@ impl BackgroundMonitor {
     /// Get current monitoring status
     pub async fn status(&self) -> MonitoringStatus {
         let prev = self.previous_devices.lock().await;
+        let unique = self.unique_devices_seen.lock().await;
         let online_count = prev.len();
+        let total_seen = unique.len();
 
         MonitoringStatus {
             is_running: self.is_running.load(Ordering::SeqCst),
@@ -234,7 +247,7 @@ impl BackgroundMonitor {
             scan_count: self.scan_count.load(Ordering::SeqCst),
             last_scan_time: self.last_scan_time.lock().await.clone(),
             devices_online: online_count,
-            devices_total: online_count,
+            devices_total: total_seen,
         }
     }
 
