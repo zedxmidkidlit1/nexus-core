@@ -14,12 +14,12 @@ This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../S
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **ARP**         | Adaptive ARP scanning with early termination — dynamically adjusts timing based on network responsiveness for faster scans                                  |
 | **ICMP**        | ICMP ping with configurable retries and TTL-based OS fingerprinting (Linux ~64, Windows ~128, Cisco ~255)                                                   |
-| **TCP**         | TCP port probing across 16 common ports (SSH, HTTP, HTTPS, RDP, SMB, etc.) for service detection                                                            |
+| **TCP**         | TCP port probing across a fast default set of 5 common ports (SSH, HTTP, HTTPS, SMB, RDP), configurable in `config.rs`                                    |
 | **SNMP**        | SNMP v2c enrichment — queries `sysName`, `sysDescr`, `sysUpTime` OIDs for device details                                                                    |
 | **mDNS**        | Passive mDNS/DNS-SD listener — discovers devices via multicast service announcements (AirPlay, HomeKit, Chromecast, Printers, etc.) without sending packets |
 | **Passive ARP** | Passive ARP traffic monitor — captures MAC-to-IP mappings from broadcast frames without active probing                                                      |
 
-**5-Phase Scan Pipeline:** `ARP Discovery → ICMP Ping → TCP Probe → SNMP Enrichment → DNS Lookup`
+**5-Phase Scan Pipeline (SNMP optional):** `ARP Discovery → ICMP Ping → TCP Probe → SNMP Enrichment → DNS Lookup`
 
 ### 🧠 Network Intelligence Module
 
@@ -63,7 +63,7 @@ This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../S
 
 ### 📡 Background Monitor Module — Real-Time Monitoring
 
-- **Continuous Scanning** — Background ARP+TCP+DNS scan loop at configurable intervals (30–3600 seconds)
+- **Continuous Scanning** — Background ARP+TCP+DNS scan loop at configurable intervals (10–3600 seconds)
 - **Live Change Detection** — Compares consecutive scans to emit real-time events:
   - `NewDeviceDiscovered`, `DeviceWentOffline`, `DeviceCameOnline`, `DeviceIpChanged`
 - **Offline Device Retention** — Tracks recently-offline devices for 1 hour to detect "came back online" events
@@ -154,7 +154,7 @@ NEXUS-core/
 │   ├── scanner/
 │   │   ├── arp.rs          # Adaptive ARP scanning with early termination
 │   │   ├── icmp.rs         # ICMP ping + TTL-based OS fingerprinting
-│   │   ├── tcp.rs          # TCP port probing (16 common ports)
+│   │   ├── tcp.rs          # TCP port probing (default 5 common ports, configurable)
 │   │   ├── snmp.rs         # SNMP v2c enrichment (hostname, description, uptime)
 │   │   └── passive/
 │   │       ├── mdns.rs     # mDNS/DNS-SD passive discovery (9 service types)

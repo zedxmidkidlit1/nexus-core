@@ -184,12 +184,18 @@ async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult> {
         scan_duration.as_secs_f64()
     );
 
+    let scan_method = if SNMP_ENABLED {
+        "Active ARP + ICMP + TCP + SNMP".to_string()
+    } else {
+        "Active ARP + ICMP + TCP".to_string()
+    };
+
     Ok(ScanResult {
         interface_name: interface.name.clone(),
         local_ip: interface.ip.to_string(),
         local_mac: format!("{}", interface.mac),
         subnet: subnet.to_string(),
-        scan_method: "Active ARP + ICMP".to_string(),
+        scan_method,
         arp_discovered: arp_count,
         icmp_discovered: icmp_count,
         total_hosts,
@@ -220,7 +226,7 @@ async fn main() {
 /// Main entry point
 async fn run() -> Result<ScanResult> {
     log_stderr!("NEXUS Core Engine — Network Discovery v0.4.0-dev");
-    log_stderr!("Active ARP + ICMP Scanning Mode");
+    log_stderr!("Active ARP + ICMP + TCP Scanning Mode");
     log_stderr!("================================================");
 
     log_stderr!("Detecting network interfaces...");
