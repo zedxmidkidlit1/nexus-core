@@ -45,9 +45,11 @@ impl ArpMonitor {
 
         // Run packet capture in a blocking worker thread to avoid stalling Tokio runtime workers.
         let worker_result = tokio::task::spawn_blocking(move || -> Result<(), String> {
-            let mut config = datalink::Config::default();
             // Periodically wake `rx.next()` so we can observe channel closure and exit cleanly.
-            config.read_timeout = Some(Duration::from_millis(500));
+            let config = datalink::Config {
+                read_timeout: Some(Duration::from_millis(500)),
+                ..Default::default()
+            };
 
             // Create datalink channel in non-promiscuous mode
             let channel = datalink::channel(&interface, config).map_err(|e| e.to_string())?;

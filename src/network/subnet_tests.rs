@@ -96,4 +96,16 @@ mod tests {
         let (_, ips) = result.unwrap();
         assert_eq!(ips.len(), 2); // 4 - 2 (network + broadcast)
     }
+
+    #[test]
+    fn test_calculate_subnet_ips_large_subnet_uses_tighter_cap() {
+        let interface = create_test_interface("172.20.32.1", 20);
+
+        let result = calculate_subnet_ips(&interface);
+        assert!(result.is_ok());
+
+        let (subnet, ips) = result.unwrap();
+        assert_eq!(subnet.prefix(), 20);
+        assert_eq!(ips.len(), 32);
+    }
 }

@@ -18,6 +18,7 @@ use crate::{
 };
 
 const OFFLINE_RETENTION_SECS: u64 = 3600;
+const BACKGROUND_ARP_PHASE_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Debug, Clone)]
 struct OfflineDeviceSnapshot {
@@ -350,7 +351,7 @@ where
         message: format!("ARP scanning {} hosts...", ips.len()),
     });
 
-    let arp_hosts = {
+    let arp_scan_handle = {
         let interface_clone = interface.clone();
         let ips_clone = ips.clone();
         let subnet_clone = subnet;
@@ -358,9 +359,24 @@ where
         tokio::task::spawn_blocking(move || {
             active_arp_scan(&interface_clone, &ips_clone, &subnet_clone)
         })
-        .await
-        .map_err(|e| format!("ARP task error: {}", e))?
-        .map_err(|e| format!("ARP scan error: {}", e))?
+    };
+
+    let arp_hosts = match tokio::time::timeout(
+        Duration::from_secs(BACKGROUND_ARP_PHASE_TIMEOUT_SECS),
+        arp_scan_handle,
+    )
+    .await
+    {
+        Ok(joined) => joined
+            .map_err(|e| format!("ARP task error: {}", e))?
+            .map_err(|e| format!("ARP scan error: {}", e))?,
+        Err(_) => {
+            tracing::warn!(
+                "[MONITOR] ARP phase exceeded {}s timeout; continuing with empty ARP host set",
+                BACKGROUND_ARP_PHASE_TIMEOUT_SECS
+            );
+            HashMap::new()
+        }
     };
 
     // Emit progress: TCP scan

@@ -19,6 +19,8 @@ use crate::network::is_special_address;
 
 /// Broadcast MAC address for ARP requests
 const BROADCAST_MAC: MacAddr = MacAddr(0xff, 0xff, 0xff, 0xff, 0xff, 0xff);
+/// Max per-round budget for transmitting ARP requests on slow adapters.
+const ARP_SEND_BUDGET_MS: u64 = 8000;
 
 /// Logs a message to stderr
 macro_rules! log_stderr {
@@ -73,8 +75,15 @@ pub fn active_arp_scan(
         target_ips.len()
     );
 
+    // Bound send/receive blocking so slow virtual adapters do not stall full scans.
+    let channel_config = datalink::Config {
+        read_timeout: Some(Duration::from_millis(100)),
+        write_timeout: Some(Duration::from_millis(50)),
+        ..Default::default()
+    };
+
     // Open datalink channel
-    let (mut tx, mut rx) = match datalink::channel(&interface.pnet_interface, Default::default()) {
+    let (mut tx, mut rx) = match datalink::channel(&interface.pnet_interface, channel_config) {
         Ok(Channel::Ethernet(tx, rx)) => (tx, rx),
         Ok(_) => return Err(anyhow!("Unsupported channel type")),
         Err(e) => {
@@ -187,8 +196,22 @@ pub fn active_arp_scan(
             initial_count
         );
 
+        let send_budget = Duration::from_millis(ARP_SEND_BUDGET_MS);
+
         // BLAST: Send all requests as fast as possible
-        for target_ip in &remaining {
+        for (sent_requests, target_ip) in remaining.iter().enumerate() {
+            if round_start.elapsed() >= send_budget {
+                let skipped = remaining.len().saturating_sub(sent_requests);
+                log_stderr!(
+                    "Round {} send budget reached ({}ms): sent {}, skipped {} remaining targets",
+                    round,
+                    ARP_SEND_BUDGET_MS,
+                    sent_requests,
+                    skipped
+                );
+                break;
+            }
+
             match create_arp_request(interface.mac, interface.ip, *target_ip) {
                 Ok(packet) => match tx.send_to(&packet, None) {
                     Some(Ok(_)) => {}

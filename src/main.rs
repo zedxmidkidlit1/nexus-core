@@ -8,7 +8,7 @@
 
 use anyhow::{Context, Result};
 use std::net::Ipv4Addr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use nexus_core::{
     HostInfo, InterfaceInfo, NeighborInfo, SNMP_ENABLED, ScanResult, active_arp_scan,
@@ -30,6 +30,8 @@ macro_rules! log_error {
         nexus_core::log_error!($($arg)*);
     };
 }
+
+const ARP_PHASE_TIMEOUT_SECS: u64 = 15;
 
 #[derive(Debug, PartialEq, Eq)]
 enum CliCommand {
@@ -136,13 +138,25 @@ async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult> {
     log_stderr!("================================================");
 
     // Phase 1: Active ARP Scan
-    let arp_hosts = tokio::task::spawn_blocking({
+    let arp_scan_handle = tokio::task::spawn_blocking({
         let interface = interface.clone();
         let ips = ips.clone();
         move || active_arp_scan(&interface, &ips, &subnet)
-    })
-    .await
-    .context("ARP scan task failed")??;
+    });
+
+    let arp_hosts =
+        match tokio::time::timeout(Duration::from_secs(ARP_PHASE_TIMEOUT_SECS), arp_scan_handle)
+            .await
+        {
+            Ok(joined) => joined.context("ARP scan task failed")??,
+            Err(_) => {
+                log_error!(
+                    "ARP phase exceeded {}s timeout; continuing with empty ARP host set",
+                    ARP_PHASE_TIMEOUT_SECS
+                );
+                std::collections::HashMap::new()
+            }
+        };
 
     let arp_count = arp_hosts.len();
 
