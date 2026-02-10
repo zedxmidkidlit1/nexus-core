@@ -2,11 +2,14 @@
 //!
 //! Compares scan results to detect changes and generate alerts
 
+use chrono::Utc;
 use std::collections::HashMap;
 
 use super::types::{Alert, AlertSeverity, AlertType, HIGH_RISK_THRESHOLD, SUSPICIOUS_PORTS};
 use crate::database::DeviceRecord;
 use crate::HostInfo;
+
+const CAME_ONLINE_STALE_MINUTES: i64 = 30;
 
 fn append_security_alerts(current_hosts: &[HostInfo], alerts: &mut Vec<Alert>) {
     // Check for high risk devices
@@ -58,6 +61,7 @@ pub fn detect_alerts_without_baseline(current_hosts: &[HostInfo]) -> Vec<Alert> 
 /// Detect alerts by comparing current scan with known devices
 pub fn detect_alerts(known_devices: &[DeviceRecord], current_hosts: &[HostInfo]) -> Vec<Alert> {
     let mut alerts = Vec::new();
+    let now = Utc::now();
 
     // Build lookup maps
     let known_macs: HashMap<&str, &DeviceRecord> =
@@ -68,7 +72,19 @@ pub fn detect_alerts(known_devices: &[DeviceRecord], current_hosts: &[HostInfo])
 
     // Check for new devices
     for host in current_hosts {
-        if !known_macs.contains_key(host.mac.as_str()) {
+        if let Some(known) = known_macs.get(host.mac.as_str()) {
+            let stale_minutes = now.signed_duration_since(known.last_seen).num_minutes();
+            if stale_minutes >= CAME_ONLINE_STALE_MINUTES {
+                let hostname_str = host.hostname.as_deref().unwrap_or("Unknown");
+                alerts.push(
+                    Alert::new(
+                        AlertType::DeviceCameOnline,
+                        format!("Device came online: {} ({})", host.ip, hostname_str),
+                    )
+                    .with_device(&host.mac, &host.ip),
+                );
+            }
+        } else {
             let hostname_str = host.hostname.as_deref().unwrap_or("Unknown");
             alerts.push(
                 Alert::new(
@@ -137,4 +153,63 @@ pub fn count_alerts_by_type(alerts: &[Alert]) -> HashMap<String, usize> {
             .or_insert(0) += 1;
     }
     counts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Duration;
+
+    fn known_device(mac: &str, ip: &str, minutes_ago: i64) -> DeviceRecord {
+        let now = Utc::now();
+        DeviceRecord {
+            id: 1,
+            mac: mac.to_string(),
+            first_seen: now - Duration::days(7),
+            last_seen: now - Duration::minutes(minutes_ago),
+            last_ip: Some(ip.to_string()),
+            vendor: Some("TestVendor".to_string()),
+            device_type: Some("UNKNOWN".to_string()),
+            hostname: Some("test-host".to_string()),
+            os_guess: None,
+            custom_name: None,
+            notes: None,
+            security_grade: None,
+        }
+    }
+
+    fn current_host(mac: &str, ip: &str) -> HostInfo {
+        let mut host = HostInfo::new(
+            ip.to_string(),
+            mac.to_string(),
+            "UNKNOWN".to_string(),
+            "ARP".to_string(),
+        );
+        host.hostname = Some("test-host".to_string());
+        host
+    }
+
+    #[test]
+    fn emits_device_came_online_when_known_device_is_stale_and_seen_again() {
+        let known = vec![known_device("AA:BB:CC:DD:EE:01", "192.168.1.10", 120)];
+        let current = vec![current_host("AA:BB:CC:DD:EE:01", "192.168.1.10")];
+
+        let alerts = detect_alerts(&known, &current);
+
+        assert!(alerts
+            .iter()
+            .any(|a| matches!(a.alert_type, AlertType::DeviceCameOnline)));
+    }
+
+    #[test]
+    fn does_not_emit_device_came_online_for_recently_seen_device() {
+        let known = vec![known_device("AA:BB:CC:DD:EE:01", "192.168.1.10", 5)];
+        let current = vec![current_host("AA:BB:CC:DD:EE:01", "192.168.1.10")];
+
+        let alerts = detect_alerts(&known, &current);
+
+        assert!(!alerts
+            .iter()
+            .any(|a| matches!(a.alert_type, AlertType::DeviceCameOnline)));
+    }
 }
