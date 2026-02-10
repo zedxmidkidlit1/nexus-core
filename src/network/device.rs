@@ -331,48 +331,48 @@ pub fn calculate_risk_score(
     open_ports: &[u16],
     is_randomized_mac: bool,
 ) -> u8 {
-    let mut score: u8 = 0;
+    let mut score: u16 = 0;
 
     // Base score by device type
     score += match device_type {
-        DeviceType::Server => 20,
-        DeviceType::Router | DeviceType::Firewall => 15,
-        DeviceType::Nas => 15,
-        DeviceType::Camera => 25,    // IoT cameras are often vulnerable
-        DeviceType::IotDevice => 30, // IoT devices are risky
-        DeviceType::Printer => 10,
-        DeviceType::Pc | DeviceType::Laptop => 10,
-        DeviceType::Mobile | DeviceType::Tablet => 5,
-        DeviceType::SmartTv => 15,
-        DeviceType::GameConsole => 5,
-        DeviceType::Switch | DeviceType::AccessPoint => 10,
-        DeviceType::Unknown => 20, // Unknown devices are concerning
+        DeviceType::Server => 20u16,
+        DeviceType::Router | DeviceType::Firewall => 15u16,
+        DeviceType::Nas => 15u16,
+        DeviceType::Camera => 25u16,    // IoT cameras are often vulnerable
+        DeviceType::IotDevice => 30u16, // IoT devices are risky
+        DeviceType::Printer => 10u16,
+        DeviceType::Pc | DeviceType::Laptop => 10u16,
+        DeviceType::Mobile | DeviceType::Tablet => 5u16,
+        DeviceType::SmartTv => 15u16,
+        DeviceType::GameConsole => 5u16,
+        DeviceType::Switch | DeviceType::AccessPoint => 10u16,
+        DeviceType::Unknown => 20u16, // Unknown devices are concerning
     };
 
     // Add risk for open ports
     for &port in open_ports {
         score += match port {
-            21 => 15,          // FTP - unencrypted
-            23 => 20,          // Telnet - very insecure
-            25 => 5,           // SMTP
-            53 => 5,           // DNS
-            80 => 5,           // HTTP
-            139 | 445 => 15,   // SMB - often targeted
-            443 => 2,          // HTTPS - relatively safe
-            3389 => 15,        // RDP - often targeted
-            5900..=5910 => 15, // VNC
-            8080 | 8443 => 5,  // Alt HTTP/HTTPS
-            _ => 2,
+            21 => 15u16,          // FTP - unencrypted
+            23 => 20u16,          // Telnet - very insecure
+            25 => 5u16,           // SMTP
+            53 => 5u16,           // DNS
+            80 => 5u16,           // HTTP
+            139 | 445 => 15u16,   // SMB - often targeted
+            443 => 2u16,          // HTTPS - relatively safe
+            3389 => 15u16,        // RDP - often targeted
+            5900..=5910 => 15u16, // VNC
+            8080 | 8443 => 5u16,  // Alt HTTP/HTTPS
+            _ => 2u16,
         };
     }
 
     // Randomized MAC slightly increases uncertainty
     if is_randomized_mac {
-        score += 5;
+        score += 5u16;
     }
 
     // Cap at 100
-    score.min(100)
+    score.min(100) as u8
 }
 
 /// Helper function to check if string contains any of the patterns

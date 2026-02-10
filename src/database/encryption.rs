@@ -137,7 +137,6 @@ fn encrypt_database_file_internal(
     db_path: &Path,
     passphrase: Option<&str>,
 ) -> Result<String, Box<dyn Error>> {
-    let db_path = db_path.as_ref();
     let encrypted_path = encrypted_output_path(db_path);
 
     tracing::info!("Encrypting database: {:?} -> {:?}", db_path, encrypted_path);

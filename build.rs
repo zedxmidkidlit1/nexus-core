@@ -14,7 +14,6 @@ fn main() {
             r"C:\Program Files\Npcap\SDK\Lib\x64",
             // Alternative paths
             r"C:\npcap-sdk-1.13\Lib\x64",
-            r"C:\Users\ryanastro\npcap-sdk\Lib\x64",
             // From environment variable (highest priority)
         ];
 

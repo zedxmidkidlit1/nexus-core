@@ -46,7 +46,7 @@ fn collect_candidate_interfaces(
             }
             IpAddr::V6(_) => false,
         });
-        if !pnet_if.is_up() && !(cfg!(target_os = "windows") && has_usable_ipv4) {
+        if !(pnet_if.is_up() || (cfg!(target_os = "windows") && has_usable_ipv4)) {
             if verbose {
                 log_debug!("Skipping down adapter: {}", pnet_if.name);
             }
