@@ -21,7 +21,7 @@ pub mod monitor;
 pub mod network;
 pub mod scanner;
 
-pub use alerts::{detect_alerts, detect_alerts_without_baseline, has_high_priority_alerts, Alert};
+pub use alerts::{Alert, detect_alerts, detect_alerts_without_baseline, has_high_priority_alerts};
 pub use config::*;
 pub use database::{
     AlertRecord, AlertSeverity, AlertType, Database, DeviceRecord, NetworkStats, ScanRecord,
@@ -36,13 +36,13 @@ pub use insights::{
 pub use models::*;
 pub use monitor::{BackgroundMonitor, MonitoringStatus, NetworkEvent};
 pub use network::{
-    calculate_risk_score, calculate_subnet_ips, dns_scan, find_valid_interface, infer_device_type,
-    is_local_subnet, is_special_address, list_valid_interfaces, lookup_vendor, lookup_vendor_info,
-    DeviceType,
+    DeviceType, calculate_risk_score, calculate_subnet_ips, dns_scan, find_interface_by_name,
+    find_valid_interface, infer_device_type, is_local_subnet, is_special_address,
+    list_valid_interfaces, lookup_vendor, lookup_vendor_info,
 };
 pub use scanner::{
-    active_arp_scan, guess_os_from_ttl, icmp_scan, snmp_enrich, tcp_probe_scan, IcmpResult,
-    SnmpData, SnmpNeighbor,
+    IcmpResult, SnmpData, SnmpNeighbor, active_arp_scan, guess_os_from_ttl, icmp_scan, snmp_enrich,
+    tcp_probe_scan,
 };
 
 // Re-export logging macros for use across crate

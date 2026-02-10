@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::models::*;
 use crate::models::{HostInfo, ScanResult};
@@ -64,9 +64,8 @@ pub fn insert_scan(conn: &Connection, result: &ScanResult) -> Result<i64> {
             Ok(scan_id)
         }
         Err(e) => {
-            let _ = conn.execute_batch(
-                "ROLLBACK TO SAVEPOINT insert_scan; RELEASE SAVEPOINT insert_scan",
-            );
+            let _ = conn
+                .execute_batch("ROLLBACK TO SAVEPOINT insert_scan; RELEASE SAVEPOINT insert_scan");
             Err(e)
         }
     }
@@ -81,7 +80,8 @@ fn upsert_device_from_host(conn: &Connection, host: &HostInfo, scan_id: i64) -> 
             params![&host.mac],
             |row| row.get(0),
         )
-        .ok();
+        .optional()
+        .context("Failed to lookup existing device by MAC")?;
 
     let device_id = if let Some(id) = device_id {
         // Update existing device
@@ -512,10 +512,16 @@ pub fn get_latest_scan_hosts(conn: &Connection) -> Result<Vec<HostInfo>> {
             let response_time_ms = row.get::<_, Option<i64>>(5)?.map(|v| v as u64);
             let raw_risk_score: i32 = row.get(6)?;
             let risk_score = if raw_risk_score < 0 {
-                tracing::warn!("Negative risk_score {} found in database; clamping to 0", raw_risk_score);
+                tracing::warn!(
+                    "Negative risk_score {} found in database; clamping to 0",
+                    raw_risk_score
+                );
                 0
             } else if raw_risk_score > 100 {
-                tracing::warn!("Out-of-range risk_score {} found in database; clamping to 100", raw_risk_score);
+                tracing::warn!(
+                    "Out-of-range risk_score {} found in database; clamping to 100",
+                    raw_risk_score
+                );
                 100
             } else {
                 raw_risk_score as u8
@@ -619,8 +625,12 @@ fn parse_datetime_column(s: String, column: usize) -> rusqlite::Result<DateTime<
     DateTime::parse_from_str(&format!("{} +0000", s), "%Y-%m-%d %H:%M:%S %z")
         .map(|dt| dt.with_timezone(&Utc))
         .map_err(|e| {
-        rusqlite::Error::FromSqlConversionFailure(column, rusqlite::types::Type::Text, Box::new(e))
-    })
+            rusqlite::Error::FromSqlConversionFailure(
+                column,
+                rusqlite::types::Type::Text,
+                Box::new(e),
+            )
+        })
 }
 
 fn parse_alert_type_or_default(s: &str) -> AlertType {

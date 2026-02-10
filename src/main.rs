@@ -11,9 +11,9 @@ use std::net::Ipv4Addr;
 use std::time::Instant;
 
 use nexus_core::{
-    active_arp_scan, calculate_risk_score, calculate_subnet_ips, dns_scan, find_valid_interface,
-    guess_os_from_ttl, icmp_scan, infer_device_type, lookup_vendor_info, snmp_enrich,
-    tcp_probe_scan, HostInfo, InterfaceInfo, NeighborInfo, ScanResult, SNMP_ENABLED,
+    HostInfo, InterfaceInfo, NeighborInfo, SNMP_ENABLED, ScanResult, active_arp_scan,
+    calculate_risk_score, calculate_subnet_ips, dns_scan, find_valid_interface, guess_os_from_ttl,
+    icmp_scan, infer_device_type, lookup_vendor_info, snmp_enrich, tcp_probe_scan,
 };
 
 /// Logs a message to stderr
@@ -65,7 +65,16 @@ async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult> {
         .collect();
 
     let snmp_data = if SNMP_ENABLED {
-        snmp_enrich(&host_ips).await.unwrap_or_default()
+        match snmp_enrich(&host_ips).await {
+            Ok(data) => data,
+            Err(e) => {
+                log_error!(
+                    "SNMP enrichment failed; continuing without SNMP data: {}",
+                    e
+                );
+                std::collections::HashMap::new()
+            }
+        }
     } else {
         std::collections::HashMap::new()
     };
@@ -211,15 +220,13 @@ async fn main() {
     }
 
     match run().await {
-        Ok(result) => {
-            match serde_json::to_string_pretty(&result) {
-                Ok(json) => println!("{}", json),
-                Err(e) => {
-                    log_error!("Failed to serialize scan result to JSON: {}", e);
-                    std::process::exit(1);
-                }
+        Ok(result) => match serde_json::to_string_pretty(&result) {
+            Ok(json) => println!("{}", json),
+            Err(e) => {
+                log_error!("Failed to serialize scan result to JSON: {}", e);
+                std::process::exit(1);
             }
-        }
+        },
         Err(e) => {
             log_error!("{:#}", e);
             std::process::exit(1);

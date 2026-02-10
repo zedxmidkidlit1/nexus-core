@@ -1,16 +1,16 @@
 //! Active ARP scanning with adaptive timing
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ipnetwork::Ipv4Network;
 use pnet::datalink::{self, Channel};
+use pnet::packet::Packet;
 use pnet::packet::arp::{ArpHardwareTypes, ArpOperations, ArpPacket, MutableArpPacket};
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
-use pnet::packet::Packet;
 use pnet::util::MacAddr;
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::config::{ARP_CHECK_INTERVAL_MS, ARP_IDLE_TIMEOUT_MS, ARP_MAX_WAIT_MS, ARP_ROUNDS};
@@ -118,33 +118,31 @@ pub fn active_arp_scan(
         while Instant::now() < deadline {
             match rx.next() {
                 Ok(packet) => {
-                    if let Some(ethernet) = EthernetPacket::new(packet) {
-                        if ethernet.get_ethertype() == EtherTypes::Arp {
-                            if let Some(arp) = ArpPacket::new(ethernet.payload()) {
-                                if arp.get_operation() == ArpOperations::Reply {
-                                    let sender_ip = arp.get_sender_proto_addr();
-                                    let sender_mac = arp.get_sender_hw_addr();
+                    if let Some(ethernet) = EthernetPacket::new(packet)
+                        && ethernet.get_ethertype() == EtherTypes::Arp
+                        && let Some(arp) = ArpPacket::new(ethernet.payload())
+                        && arp.get_operation() == ArpOperations::Reply
+                    {
+                        let sender_ip = arp.get_sender_proto_addr();
+                        let sender_mac = arp.get_sender_hw_addr();
 
-                                    if subnet_clone.contains(sender_ip)
-                                        && !is_special_address(sender_ip, &subnet_clone)
-                                    {
-                                        let mut map = match discovered_clone.lock() {
-                                            Ok(map) => map,
-                                            Err(_) => {
-                                                log_stderr!(
-                                                    "ARP receiver map lock poisoned; stopping receiver thread"
-                                                );
-                                                break;
-                                            }
-                                        };
-                                        if let std::collections::hash_map::Entry::Vacant(e) =
-                                            map.entry(sender_ip)
-                                        {
-                                            e.insert(sender_mac);
-                                            host_count_clone.fetch_add(1, Ordering::SeqCst);
-                                        }
-                                    }
+                        if subnet_clone.contains(sender_ip)
+                            && !is_special_address(sender_ip, &subnet_clone)
+                        {
+                            let mut map = match discovered_clone.lock() {
+                                Ok(map) => map,
+                                Err(_) => {
+                                    log_stderr!(
+                                        "ARP receiver map lock poisoned; stopping receiver thread"
+                                    );
+                                    break;
                                 }
+                            };
+                            if let std::collections::hash_map::Entry::Vacant(e) =
+                                map.entry(sender_ip)
+                            {
+                                e.insert(sender_mac);
+                                host_count_clone.fetch_add(1, Ordering::SeqCst);
                             }
                         }
                     }
@@ -192,9 +190,18 @@ pub fn active_arp_scan(
         // BLAST: Send all requests as fast as possible
         for target_ip in &remaining {
             match create_arp_request(interface.mac, interface.ip, *target_ip) {
-                Ok(packet) => {
-                    let _ = tx.send_to(&packet, None);
-                }
+                Ok(packet) => match tx.send_to(&packet, None) {
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => {
+                        log_stderr!("Failed to send ARP request to {}: {}", target_ip, e);
+                    }
+                    None => {
+                        log_stderr!(
+                            "Failed to send ARP request to {}: no transmit channel",
+                            target_ip
+                        );
+                    }
+                },
                 Err(e) => {
                     log_stderr!("Failed to create ARP request for {}: {}", target_ip, e);
                 }

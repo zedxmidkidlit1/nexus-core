@@ -6,13 +6,16 @@
 use crate::monitor::events::{DeviceSnapshot, NetworkEvent};
 use crate::scanner::passive::mdns::PassiveDevice;
 use crate::scanner::passive::{ArpEvent, ArpMonitor, PassiveScanner};
+use pnet::datalink::NetworkInterface;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Start passive discovery listeners
 ///
 /// Returns channels for mDNS and ARP events
-pub async fn start_passive_listeners() -> Result<
+pub async fn start_passive_listeners(
+    interface: &NetworkInterface,
+) -> Result<
     (
         mpsc::Receiver<PassiveDevice>,
         Option<mpsc::Receiver<ArpEvent>>,
@@ -30,7 +33,7 @@ pub async fn start_passive_listeners() -> Result<
     });
 
     // ARP monitor (optional - requires admin on Windows)
-    let arp_rx = match try_start_arp_monitor().await {
+    let arp_rx = match try_start_arp_monitor(interface).await {
         Ok(rx) => Some(rx),
         Err(e) => {
             tracing::warn!("ARP monitoring disabled: {}", e);
@@ -42,18 +45,11 @@ pub async fn start_passive_listeners() -> Result<
 }
 
 /// Try to start ARP monitor (may fail without admin privileges)
-async fn try_start_arp_monitor() -> Result<mpsc::Receiver<ArpEvent>, Box<dyn std::error::Error>> {
-    use pnet::datalink;
-
-    // Find suitable interface
-    let interfaces = datalink::interfaces();
-    let interface = interfaces
-        .into_iter()
-        .find(|iface| !iface.is_loopback() && iface.is_up() && !iface.ips.is_empty())
-        .ok_or("No suitable network interface")?;
-
+async fn try_start_arp_monitor(
+    interface: &NetworkInterface,
+) -> Result<mpsc::Receiver<ArpEvent>, Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel(100);
-    let monitor = ArpMonitor::new(interface);
+    let monitor = ArpMonitor::new(interface.clone());
 
     tokio::spawn(async move {
         if let Err(e) = monitor.start_monitoring(tx).await {

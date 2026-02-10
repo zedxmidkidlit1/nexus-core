@@ -1,6 +1,6 @@
 //! Network interface detection and selection
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use pnet::datalink;
 use pnet::util::MacAddr;
 use std::net::{IpAddr, Ipv4Addr};
@@ -107,6 +107,19 @@ fn collect_candidate_interfaces(
     candidates
 }
 
+fn sorted_candidate_interfaces(
+    pnet_interfaces: &[datalink::NetworkInterface],
+    verbose: bool,
+) -> Vec<InterfaceInfo> {
+    let mut candidates = collect_candidate_interfaces(pnet_interfaces, verbose);
+    candidates.sort_by(|a, b| {
+        let score_a = interface_score(&a.ip);
+        let score_b = interface_score(&b.ip);
+        score_b.cmp(&score_a)
+    });
+    candidates
+}
+
 /// Finds the first valid IPv4 network interface with MAC address
 /// Prefers physical adapters over virtual ones (Hyper-V, VMware, etc.)
 pub fn find_valid_interface() -> Result<InterfaceInfo> {
@@ -114,14 +127,7 @@ pub fn find_valid_interface() -> Result<InterfaceInfo> {
 
     log_debug!("Scanning {} network interfaces...", pnet_interfaces.len());
 
-    let mut candidates = collect_candidate_interfaces(&pnet_interfaces, true);
-
-    // Sort candidates: prefer 192.168.x.x, then 10.x.x.x, then others
-    candidates.sort_by(|a, b| {
-        let score_a = interface_score(&a.ip);
-        let score_b = interface_score(&b.ip);
-        score_b.cmp(&score_a)
-    });
+    let candidates = sorted_candidate_interfaces(&pnet_interfaces, true);
 
     if let Some(best) = candidates.into_iter().next() {
         log_debug!(
@@ -152,16 +158,49 @@ pub fn find_valid_interface() -> Result<InterfaceInfo> {
     ))
 }
 
+/// Finds a valid interface by name.
+///
+/// Matching is case-insensitive and only considers interfaces that pass the
+/// same validation filters as `find_valid_interface`.
+pub fn find_interface_by_name(interface_name: &str) -> Result<InterfaceInfo> {
+    let pnet_interfaces = datalink::interfaces();
+    let candidates = sorted_candidate_interfaces(&pnet_interfaces, true);
+
+    if let Some(found) = candidates
+        .iter()
+        .find(|i| i.name.eq_ignore_ascii_case(interface_name))
+    {
+        log_debug!(
+            "Selected requested interface: {} (IP: {}/{}, MAC: {})",
+            found.name,
+            found.ip,
+            found.prefix_len,
+            found.mac
+        );
+        return Ok(found.clone());
+    }
+
+    let available = candidates
+        .iter()
+        .map(|i| i.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    Err(anyhow!(
+        "Requested interface '{}' is not a valid monitor target. Available interfaces: {}",
+        interface_name,
+        if available.is_empty() {
+            "(none found)"
+        } else {
+            available.as_str()
+        }
+    ))
+}
+
 /// List valid interface names in priority order.
 pub fn list_valid_interfaces() -> Vec<String> {
     let pnet_interfaces = datalink::interfaces();
-    let mut candidates = collect_candidate_interfaces(&pnet_interfaces, false);
-
-    candidates.sort_by(|a, b| {
-        let score_a = interface_score(&a.ip);
-        let score_b = interface_score(&b.ip);
-        score_b.cmp(&score_a)
-    });
+    let candidates = sorted_candidate_interfaces(&pnet_interfaces, false);
 
     let mut names = Vec::new();
     for candidate in candidates {

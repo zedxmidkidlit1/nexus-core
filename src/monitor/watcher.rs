@@ -4,8 +4,8 @@
 //! Uses callbacks for event notification (Tauri-agnostic)
 
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
@@ -13,8 +13,8 @@ use super::events::{DeviceSnapshot, MonitoringStatus, NetworkEvent};
 use super::passive_integration::{passive_device_to_snapshot, start_passive_listeners};
 use crate::config::{DEFAULT_MONITOR_INTERVAL, MAX_MONITOR_INTERVAL, MIN_MONITOR_INTERVAL};
 use crate::{
-    active_arp_scan, calculate_subnet_ips, dns_scan, find_valid_interface, infer_device_type,
-    lookup_vendor_info, tcp_probe_scan,
+    InterfaceInfo, active_arp_scan, calculate_subnet_ips, dns_scan, find_interface_by_name,
+    find_valid_interface, infer_device_type, lookup_vendor_info, tcp_probe_scan,
 };
 
 const OFFLINE_RETENTION_SECS: u64 = 3600;
@@ -42,6 +42,8 @@ pub struct BackgroundMonitor {
     passive_devices: Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
     /// Session-wide unique device identities seen across all scans.
     unique_devices_seen: Arc<Mutex<HashSet<String>>>,
+    /// Active interface selected for the current monitor session.
+    selected_interface_name: Arc<Mutex<Option<String>>>,
 }
 
 impl BackgroundMonitor {
@@ -55,11 +57,28 @@ impl BackgroundMonitor {
             offline_devices: Arc::new(Mutex::new(HashMap::new())),
             passive_devices: Arc::new(Mutex::new(HashMap::new())),
             unique_devices_seen: Arc::new(Mutex::new(HashSet::new())),
+            selected_interface_name: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Start background monitoring with event callback
     pub async fn start<F>(&self, callback: F, interval: Option<u64>) -> Result<(), String>
+    where
+        F: Fn(NetworkEvent) + Send + Sync + 'static,
+    {
+        self.start_with_interface(callback, interval, None).await
+    }
+
+    /// Start background monitoring pinned to a single interface.
+    ///
+    /// If `interface_name` is `None`, the best valid interface is selected once
+    /// at start time and reused for the full monitoring session.
+    pub async fn start_with_interface<F>(
+        &self,
+        callback: F,
+        interval: Option<u64>,
+        interface_name: Option<String>,
+    ) -> Result<(), String>
     where
         F: Fn(NetworkEvent) + Send + Sync + 'static,
     {
@@ -70,15 +89,29 @@ impl BackgroundMonitor {
         if self.is_running.load(Ordering::SeqCst) {
             // Idempotent start: keep current loop and optionally update interval.
             *self.interval_seconds.lock().await = requested_interval;
+            if let Some(requested) = interface_name.as_deref()
+                && let Some(current) = self.selected_interface_name.lock().await.clone()
+                && !current.eq_ignore_ascii_case(requested)
+            {
+                return Err(format!(
+                    "Monitoring is already running on interface '{}'. Stop it before switching to '{}'.",
+                    current, requested
+                ));
+            }
             return Ok(());
         }
 
         let interval_secs = requested_interval;
+        let selected_interface = resolve_monitor_interface(interface_name.as_deref())?;
 
         *self.interval_seconds.lock().await = interval_secs;
+        *self.selected_interface_name.lock().await = Some(selected_interface.name.clone());
         self.is_running.store(true, Ordering::SeqCst);
         self.scan_count.store(0, Ordering::SeqCst);
         self.unique_devices_seen.lock().await.clear();
+        self.previous_devices.lock().await.clear();
+        self.offline_devices.lock().await.clear();
+        self.passive_devices.lock().await.clear();
 
         // Wrap callback in Arc
         let callback = Arc::new(callback);
@@ -97,14 +130,17 @@ impl BackgroundMonitor {
         let passive_devices = Arc::clone(&self.passive_devices);
         let unique_devices_seen = Arc::clone(&self.unique_devices_seen);
         let interval_seconds = Arc::clone(&self.interval_seconds);
+        let selected_interface_name = Arc::clone(&self.selected_interface_name);
+        let scan_interface = selected_interface.clone();
         let cb = Arc::clone(&callback);
 
         // Start passive listeners (best-effort) and merge into the monitor state.
         let is_running_for_passive = Arc::clone(&self.is_running);
         let passive_map = Arc::clone(&self.passive_devices);
+        let unique_for_passive = Arc::clone(&self.unique_devices_seen);
         let cb_passive = Arc::clone(&callback);
 
-        match start_passive_listeners().await {
+        match start_passive_listeners(&scan_interface.pnet_interface).await {
             Ok((mut mdns_rx, mut arp_rx_opt)) => {
                 tokio::spawn(async move {
                     let mut arp_ip_to_mac: HashMap<String, String> = HashMap::new();
@@ -120,7 +156,13 @@ impl BackgroundMonitor {
                                         if let Some(mac) = arp_ip_to_mac.get(&snapshot.ip) {
                                             snapshot.mac = mac.clone();
                                         }
-                                        upsert_passive_device(&passive_map, snapshot, &*cb_passive).await;
+                                        upsert_passive_device(
+                                            &passive_map,
+                                            &unique_for_passive,
+                                            snapshot,
+                                            &*cb_passive,
+                                        )
+                                        .await;
                                     }
                                     None => break,
                                 }
@@ -135,7 +177,13 @@ impl BackgroundMonitor {
                             } => {
                                 if let Some(event) = arp_event {
                                     arp_ip_to_mac.insert(event.sender_ip.clone(), event.sender_mac.clone());
-                                    apply_arp_enrichment(&passive_map, &event.sender_ip, &event.sender_mac).await;
+                                    apply_arp_enrichment(
+                                        &passive_map,
+                                        &unique_for_passive,
+                                        &event.sender_ip,
+                                        &event.sender_mac,
+                                    )
+                                    .await;
                                 } else if arp_rx_opt.is_some() {
                                     tracing::warn!("[MONITOR] ARP passive channel closed");
                                     arp_rx_opt = None;
@@ -173,16 +221,10 @@ impl BackgroundMonitor {
                 let start = Instant::now();
 
                 // Run the actual scan
-                match run_background_scan(&*cb).await {
+                match run_background_scan(&*cb, &scan_interface).await {
                     Ok(devices) => {
                         let merged_devices =
                             merge_active_and_passive_devices(devices, &passive_devices).await;
-                        {
-                            let mut unique = unique_devices_seen.lock().await;
-                            for device in &merged_devices {
-                                unique.insert(device.mac.clone());
-                            }
-                        }
                         let duration = start.elapsed().as_millis() as u64;
 
                         // Update last scan time
@@ -191,7 +233,14 @@ impl BackgroundMonitor {
                         // Detect changes
                         let mut prev = previous_devices.lock().await;
                         let mut offline = offline_devices.lock().await;
-                        detect_and_emit_changes(&*cb, &mut prev, &mut offline, &merged_devices);
+                        let mut unique = unique_devices_seen.lock().await;
+                        detect_and_emit_changes(
+                            &*cb,
+                            &mut prev,
+                            &mut offline,
+                            &mut unique,
+                            &merged_devices,
+                        );
 
                         // Emit scan completed
                         (*cb)(NetworkEvent::ScanCompleted {
@@ -223,6 +272,7 @@ impl BackgroundMonitor {
             }
 
             tracing::info!("[MONITOR] Background monitoring stopped");
+            *selected_interface_name.lock().await = None;
             (*cb)(NetworkEvent::MonitoringStopped);
         });
 
@@ -236,10 +286,8 @@ impl BackgroundMonitor {
 
     /// Get current monitoring status
     pub async fn status(&self) -> MonitoringStatus {
-        let prev = self.previous_devices.lock().await;
-        let unique = self.unique_devices_seen.lock().await;
-        let online_count = prev.len();
-        let total_seen = unique.len();
+        let online_count = self.previous_devices.lock().await.len();
+        let total_seen = self.unique_devices_seen.lock().await.len();
 
         MonitoringStatus {
             is_running: self.is_running.load(Ordering::SeqCst),
@@ -255,6 +303,11 @@ impl BackgroundMonitor {
     pub fn is_running(&self) -> bool {
         self.is_running.load(Ordering::SeqCst)
     }
+
+    /// Selected monitor interface name for current session (if running).
+    pub async fn selected_interface(&self) -> Option<String> {
+        self.selected_interface_name.lock().await.clone()
+    }
 }
 
 impl Default for BackgroundMonitor {
@@ -264,7 +317,19 @@ impl Default for BackgroundMonitor {
 }
 
 /// Run a background scan and return device snapshots
-async fn run_background_scan<F>(callback: &F) -> Result<Vec<DeviceSnapshot>, String>
+fn resolve_monitor_interface(interface_name: Option<&str>) -> Result<InterfaceInfo, String> {
+    if let Some(name) = interface_name {
+        find_interface_by_name(name)
+            .map_err(|e| format!("Requested interface '{}' is unavailable: {}", name, e))
+    } else {
+        find_valid_interface().map_err(|e| format!("Interface error: {}", e))
+    }
+}
+
+async fn run_background_scan<F>(
+    callback: &F,
+    interface: &InterfaceInfo,
+) -> Result<Vec<DeviceSnapshot>, String>
 where
     F: Fn(NetworkEvent),
 {
@@ -272,13 +337,11 @@ where
     callback(NetworkEvent::ScanProgress {
         phase: "INIT".to_string(),
         percent: 5,
-        message: "Finding network interface...".to_string(),
+        message: format!("Using interface {} ({})", interface.name, interface.ip),
     });
 
-    let interface = find_valid_interface().map_err(|e| format!("Interface error: {}", e))?;
-
     let (subnet, ips) =
-        calculate_subnet_ips(&interface).map_err(|e| format!("Subnet error: {}", e))?;
+        calculate_subnet_ips(interface).map_err(|e| format!("Subnet error: {}", e))?;
 
     // Emit progress: ARP scan
     callback(NetworkEvent::ScanProgress {
@@ -368,6 +431,7 @@ fn is_unknown_passive_mac(mac: &str) -> bool {
 
 async fn upsert_passive_device<F>(
     passive_devices: &Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
+    unique_devices_seen: &Arc<Mutex<HashSet<String>>>,
     snapshot: DeviceSnapshot,
     callback: &F,
 ) where
@@ -379,8 +443,12 @@ async fn upsert_passive_device<F>(
     let is_new = !map.contains_key(&key);
     map.insert(key, snapshot.clone());
     drop(map);
+    let should_emit_new = unique_devices_seen
+        .lock()
+        .await
+        .insert(snapshot.mac.clone());
 
-    if is_new {
+    if is_new && should_emit_new {
         callback(NetworkEvent::NewDeviceDiscovered {
             ip: snapshot.ip,
             mac: snapshot.mac,
@@ -392,21 +460,46 @@ async fn upsert_passive_device<F>(
 
 async fn apply_arp_enrichment(
     passive_devices: &Arc<Mutex<HashMap<String, DeviceSnapshot>>>,
+    unique_devices_seen: &Arc<Mutex<HashSet<String>>>,
     sender_ip: &str,
     sender_mac: &str,
 ) {
     let mut map = passive_devices.lock().await;
-    let matching_keys: Vec<String> = map
+    let matching_keys: Vec<(String, bool)> = map
         .iter()
         .filter(|(_, snapshot)| snapshot.ip == sender_ip && snapshot.mac != sender_mac)
-        .map(|(key, _)| key.clone())
+        .map(|(key, _)| (key.clone(), is_unknown_passive_mac(key)))
         .collect();
 
-    for old_key in matching_keys {
+    let mut replaced_unknown_keys = Vec::new();
+    for (old_key, was_unknown) in matching_keys {
         if let Some(mut snapshot) = map.remove(&old_key) {
+            if was_unknown {
+                replaced_unknown_keys.push(old_key.clone());
+            }
             snapshot.mac = sender_mac.to_string();
-            map.insert(snapshot.mac.clone(), snapshot);
+            if let Some(existing) = map.get_mut(sender_mac) {
+                if existing.hostname.is_none() {
+                    existing.hostname = snapshot.hostname.take();
+                }
+                if existing.device_type.eq_ignore_ascii_case("unknown")
+                    && !snapshot.device_type.eq_ignore_ascii_case("unknown")
+                {
+                    existing.device_type = snapshot.device_type;
+                }
+            } else {
+                map.insert(snapshot.mac.clone(), snapshot);
+            }
         }
+    }
+    drop(map);
+
+    if !replaced_unknown_keys.is_empty() {
+        let mut unique = unique_devices_seen.lock().await;
+        for old_key in replaced_unknown_keys {
+            unique.remove(&old_key);
+        }
+        unique.insert(sender_mac.to_string());
     }
 }
 
@@ -443,12 +536,14 @@ fn detect_and_emit_changes<F>(
     callback: &F,
     previous_online: &mut HashMap<String, DeviceSnapshot>,
     offline_devices: &mut HashMap<String, OfflineDeviceSnapshot>,
+    unique_devices_seen: &mut HashSet<String>,
     current: &[DeviceSnapshot],
 ) where
     F: Fn(NetworkEvent),
 {
     let now = Instant::now();
-    offline_devices.retain(|_, snap| now.duration_since(snap.since).as_secs() <= OFFLINE_RETENTION_SECS);
+    offline_devices
+        .retain(|_, snap| now.duration_since(snap.since).as_secs() <= OFFLINE_RETENTION_SECS);
 
     let current_macs: HashMap<String, &DeviceSnapshot> =
         current.iter().map(|d| (d.mac.clone(), d)).collect();
@@ -480,7 +575,9 @@ fn detect_and_emit_changes<F>(
             if prev_device.ip != device.ip {
                 tracing::debug!(
                     "[MONITOR] IP changed: {} -> {} ({})",
-                    prev_device.ip, device.ip, device.mac
+                    prev_device.ip,
+                    device.ip,
+                    device.mac
                 );
                 callback(NetworkEvent::DeviceIpChanged {
                     mac: device.mac.clone(),
@@ -489,7 +586,11 @@ fn detect_and_emit_changes<F>(
                 });
             }
         } else if let Some(was_offline) = offline_devices.remove(&device.mac) {
-            tracing::debug!("[MONITOR] Device back online: {} ({})", device.ip, device.mac);
+            tracing::debug!(
+                "[MONITOR] Device back online: {} ({})",
+                device.ip,
+                device.mac
+            );
             callback(NetworkEvent::DeviceCameOnline {
                 mac: device.mac.clone(),
                 ip: device.ip.clone(),
@@ -499,7 +600,9 @@ fn detect_and_emit_changes<F>(
             if was_offline.device.ip != device.ip {
                 tracing::debug!(
                     "[MONITOR] IP changed while offline: {} -> {} ({})",
-                    was_offline.device.ip, device.ip, device.mac
+                    was_offline.device.ip,
+                    device.ip,
+                    device.mac
                 );
                 callback(NetworkEvent::DeviceIpChanged {
                     mac: device.mac.clone(),
@@ -507,7 +610,7 @@ fn detect_and_emit_changes<F>(
                     new_ip: device.ip.clone(),
                 });
             }
-        } else {
+        } else if unique_devices_seen.insert(device.mac.clone()) {
             tracing::debug!("[MONITOR] New device: {} ({})", device.ip, device.mac);
             callback(NetworkEvent::NewDeviceDiscovered {
                 ip: device.ip.clone(),
@@ -517,8 +620,87 @@ fn detect_and_emit_changes<F>(
             });
         }
 
+        unique_devices_seen.insert(device.mac.clone());
         next_online.insert(device.mac.clone(), device.clone());
     }
 
     *previous_online = next_online;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc as StdArc, Mutex as StdMutex};
+
+    #[test]
+    fn detect_changes_skips_duplicate_new_event_for_already_seen_mac() {
+        let events: StdArc<StdMutex<Vec<NetworkEvent>>> = StdArc::new(StdMutex::new(Vec::new()));
+        let events_capture = StdArc::clone(&events);
+        let callback = move |event: NetworkEvent| {
+            events_capture.lock().expect("event lock").push(event);
+        };
+
+        let current = vec![DeviceSnapshot {
+            mac: "AA:BB:CC:DD:EE:FF".to_string(),
+            ip: "192.168.1.50".to_string(),
+            hostname: Some("passive-device".to_string()),
+            device_type: "UNKNOWN".to_string(),
+            is_online: true,
+        }];
+
+        let mut previous_online: HashMap<String, DeviceSnapshot> = HashMap::new();
+        let mut offline_devices: HashMap<String, OfflineDeviceSnapshot> = HashMap::new();
+        let mut unique_devices_seen: HashSet<String> =
+            HashSet::from(["AA:BB:CC:DD:EE:FF".to_string()]);
+
+        detect_and_emit_changes(
+            &callback,
+            &mut previous_online,
+            &mut offline_devices,
+            &mut unique_devices_seen,
+            &current,
+        );
+
+        let events = events.lock().expect("event lock");
+        assert!(
+            !events
+                .iter()
+                .any(|e| matches!(e, NetworkEvent::NewDeviceDiscovered { .. })),
+            "new-device event should be deduped when MAC is already seen"
+        );
+    }
+
+    #[tokio::test]
+    async fn arp_enrichment_reconciles_unknown_identity_in_unique_set() {
+        let passive_devices = Arc::new(Mutex::new(HashMap::from([(
+            "unknown_192.168.1.77".to_string(),
+            DeviceSnapshot {
+                mac: "unknown_192.168.1.77".to_string(),
+                ip: "192.168.1.77".to_string(),
+                hostname: Some("mdns-device".to_string()),
+                device_type: "Unknown".to_string(),
+                is_online: true,
+            },
+        )])));
+        let unique_devices_seen = Arc::new(Mutex::new(HashSet::from([
+            "unknown_192.168.1.77".to_string()
+        ])));
+
+        apply_arp_enrichment(
+            &passive_devices,
+            &unique_devices_seen,
+            "192.168.1.77",
+            "AA:BB:CC:DD:EE:77",
+        )
+        .await;
+
+        let map = passive_devices.lock().await;
+        assert!(map.contains_key("AA:BB:CC:DD:EE:77"));
+        assert!(!map.contains_key("unknown_192.168.1.77"));
+        drop(map);
+
+        let unique = unique_devices_seen.lock().await;
+        assert!(unique.contains("AA:BB:CC:DD:EE:77"));
+        assert!(!unique.contains("unknown_192.168.1.77"));
+    }
 }
