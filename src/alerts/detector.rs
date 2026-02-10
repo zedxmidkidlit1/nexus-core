@@ -6,10 +6,9 @@ use chrono::Utc;
 use std::collections::HashMap;
 
 use super::types::{Alert, AlertSeverity, AlertType, HIGH_RISK_THRESHOLD, SUSPICIOUS_PORTS};
-use crate::database::DeviceRecord;
 use crate::HostInfo;
-
-const CAME_ONLINE_STALE_MINUTES: i64 = 30;
+use crate::config::CAME_ONLINE_STALE_MINUTES;
+use crate::database::DeviceRecord;
 
 fn append_security_alerts(current_hosts: &[HostInfo], alerts: &mut Vec<Alert>) {
     // Check for high risk devices
@@ -115,22 +114,21 @@ pub fn detect_alerts(known_devices: &[DeviceRecord], current_hosts: &[HostInfo])
 
     // Check for IP changes
     for host in current_hosts {
-        if let Some(known) = known_macs.get(host.mac.as_str()) {
-            if let Some(ref last_ip) = known.last_ip {
-                if last_ip != &host.ip {
-                    let hostname_str = host.hostname.as_deref().unwrap_or("Unknown");
-                    alerts.push(
-                        Alert::new(
-                            AlertType::IpChanged,
-                            format!(
-                                "Device {} changed IP: {} → {}",
-                                hostname_str, last_ip, host.ip
-                            ),
-                        )
-                        .with_device(&host.mac, &host.ip),
-                    );
-                }
-            }
+        if let Some(known) = known_macs.get(host.mac.as_str())
+            && let Some(ref last_ip) = known.last_ip
+            && last_ip != &host.ip
+        {
+            let hostname_str = host.hostname.as_deref().unwrap_or("Unknown");
+            alerts.push(
+                Alert::new(
+                    AlertType::IpChanged,
+                    format!(
+                        "Device {} changed IP: {} → {}",
+                        hostname_str, last_ip, host.ip
+                    ),
+                )
+                .with_device(&host.mac, &host.ip),
+            );
         }
     }
 
@@ -197,9 +195,11 @@ mod tests {
 
         let alerts = detect_alerts(&known, &current);
 
-        assert!(alerts
-            .iter()
-            .any(|a| matches!(a.alert_type, AlertType::DeviceCameOnline)));
+        assert!(
+            alerts
+                .iter()
+                .any(|a| matches!(a.alert_type, AlertType::DeviceCameOnline))
+        );
     }
 
     #[test]
@@ -209,8 +209,10 @@ mod tests {
 
         let alerts = detect_alerts(&known, &current);
 
-        assert!(!alerts
-            .iter()
-            .any(|a| matches!(a.alert_type, AlertType::DeviceCameOnline)));
+        assert!(
+            !alerts
+                .iter()
+                .any(|a| matches!(a.alert_type, AlertType::DeviceCameOnline))
+        );
     }
 }

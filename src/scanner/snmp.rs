@@ -81,43 +81,40 @@ async fn query_host_snmp(ip: Ipv4Addr) -> Option<SnmpData> {
     let mut data = SnmpData::default();
 
     // Query sysName
-    if let Ok(oid) = Oid::from(OID_SYS_NAME) {
-        if let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await {
-            if let Some((_, Value::OctetString(bytes))) = response.varbinds.next() {
-                let name = String::from_utf8_lossy(bytes).trim().to_string();
-                if !name.is_empty() {
-                    data.hostname = Some(name);
-                }
-            }
+    if let Ok(oid) = Oid::from(OID_SYS_NAME)
+        && let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await
+        && let Some((_, Value::OctetString(bytes))) = response.varbinds.next()
+    {
+        let name = String::from_utf8_lossy(bytes).trim().to_string();
+        if !name.is_empty() {
+            data.hostname = Some(name);
         }
     }
 
     // Query sysDescr
-    if let Ok(oid) = Oid::from(OID_SYS_DESCR) {
-        if let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await {
-            if let Some((_, Value::OctetString(bytes))) = response.varbinds.next() {
-                let descr = String::from_utf8_lossy(bytes).trim().to_string();
-                if !descr.is_empty() {
-                    // Truncate very long descriptions
-                    let descr = if descr.len() > 200 {
-                        format!("{}...", &descr[..200])
-                    } else {
-                        descr
-                    };
-                    data.system_description = Some(descr);
-                }
-            }
+    if let Ok(oid) = Oid::from(OID_SYS_DESCR)
+        && let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await
+        && let Some((_, Value::OctetString(bytes))) = response.varbinds.next()
+    {
+        let descr = String::from_utf8_lossy(bytes).trim().to_string();
+        if !descr.is_empty() {
+            // Truncate very long descriptions
+            let descr = if descr.len() > 200 {
+                format!("{}...", &descr[..200])
+            } else {
+                descr
+            };
+            data.system_description = Some(descr);
         }
     }
 
     // Query sysUpTime (in centiseconds, convert to seconds)
-    if let Ok(oid) = Oid::from(OID_SYS_UPTIME) {
-        if let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await {
-            if let Some((_, Value::Timeticks(ticks))) = response.varbinds.next() {
-                // Timeticks is in centiseconds (1/100 sec)
-                data.uptime_seconds = Some(ticks as u64 / 100);
-            }
-        }
+    if let Ok(oid) = Oid::from(OID_SYS_UPTIME)
+        && let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await
+        && let Some((_, Value::Timeticks(ticks))) = response.varbinds.next()
+    {
+        // Timeticks is in centiseconds (1/100 sec)
+        data.uptime_seconds = Some(ticks as u64 / 100);
     }
 
     // Only return if we got at least some data

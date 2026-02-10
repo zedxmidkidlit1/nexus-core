@@ -5,7 +5,7 @@
 use crate::database::DeviceRecord;
 use crate::models::HostInfo;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use csv::Writer;
 
 /// Export devices to CSV format
@@ -29,11 +29,7 @@ pub fn export_devices_csv(devices: &[DeviceRecord]) -> Result<String> {
 
     // Write device records
     for device in devices {
-        let status = if is_recently_seen(&device.last_seen.to_rfc3339()) {
-            "Online"
-        } else {
-            "Offline"
-        };
+        let status = last_seen_status(&device.last_seen.to_rfc3339());
 
         writer.write_record([
             device.last_ip.as_deref().unwrap_or("N/A"),
@@ -104,15 +100,23 @@ pub fn export_hosts_csv(hosts: &[HostInfo]) -> Result<String> {
     Ok(csv_data)
 }
 
-/// Helper: Check if device was seen recently (within last hour)
-fn is_recently_seen(last_seen: &str) -> bool {
+/// Helper: classify recency for last_seen values.
+/// Uses "recently seen" instead of claiming online/offline from timestamps alone.
+fn last_seen_status(last_seen: &str) -> &'static str {
     if let Ok(dt) = DateTime::parse_from_rfc3339(last_seen) {
         let utc_dt: DateTime<Utc> = dt.into();
         let now = Utc::now();
         let duration = now.signed_duration_since(utc_dt);
-        duration.num_hours() < 1
+
+        if duration < Duration::zero() {
+            "Unknown"
+        } else if duration <= Duration::minutes(30) {
+            "Recently Seen"
+        } else {
+            "Stale"
+        }
     } else {
-        false
+        "Unknown"
     }
 }
 

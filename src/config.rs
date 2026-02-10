@@ -63,3 +63,6 @@ pub const MIN_MONITOR_INTERVAL: u64 = 10;
 
 /// Maximum monitoring interval in seconds
 pub const MAX_MONITOR_INTERVAL: u64 = 3600;
+
+/// Minutes without sightings before a known device is considered "came back online" when seen again.
+pub const CAME_ONLINE_STALE_MINUTES: i64 = 30;

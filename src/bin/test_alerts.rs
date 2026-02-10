@@ -1,7 +1,7 @@
 //! Test the alerts detection system
 
 use chrono::Utc;
-use nexus_core::{database::DeviceRecord, detect_alerts, has_high_priority_alerts, HostInfo};
+use nexus_core::{HostInfo, database::DeviceRecord, detect_alerts, has_high_priority_alerts};
 
 fn main() {
     println!("=== Alerts System Test ===\n");

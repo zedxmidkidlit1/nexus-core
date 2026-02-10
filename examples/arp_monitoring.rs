@@ -2,8 +2,7 @@
 //!
 //! Listens for ARP traffic and prints MAC/IP mappings
 
-use nexus_core::scanner::ArpMonitor;
-use pnet::datalink;
+use nexus_core::{find_valid_interface, scanner::ArpMonitor};
 use tokio::sync::mpsc;
 
 #[tokio::main]
@@ -17,18 +16,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Capturing ARP broadcasts for MAC/IP discovery");
     println!("Press Ctrl+C to stop\n");
 
-    // Get the first active network interface
-    let interfaces = datalink::interfaces();
-    let interface = interfaces
-        .into_iter()
-        .find(|iface| !iface.is_loopback() && iface.is_up() && !iface.ips.is_empty())
-        .ok_or("No active network interface found")?;
+    // Reuse core interface selection so behavior matches the main scanner.
+    let interface = find_valid_interface()?;
 
     println!("📡 Monitoring interface: {}", interface.name);
-    println!("   IP addresses: {:?}\n", interface.ips);
+    println!("   IP address: {}/{}", interface.ip, interface.prefix_len);
+    println!("   IP addresses: {:?}\n", interface.pnet_interface.ips);
 
     // Create ARP monitor
-    let monitor = ArpMonitor::new(interface);
+    let monitor = ArpMonitor::new(interface.pnet_interface);
 
     // Channel for receiving ARP events
     let (tx, mut rx) = mpsc::channel(100);

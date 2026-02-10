@@ -2,7 +2,7 @@
 //!
 //! Handles SQLite connection pooling and database setup
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use rusqlite::Connection;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

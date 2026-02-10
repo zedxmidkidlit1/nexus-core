@@ -1,7 +1,7 @@
 use nexus_core::database::{
-    queries, AlertSeverity as DbAlertSeverity, AlertType as DbAlertType, Database,
+    AlertSeverity as DbAlertSeverity, AlertType as DbAlertType, Database, queries,
 };
-use nexus_core::{detect_alerts, Alert as RuntimeAlert, HostInfo, ScanResult};
+use nexus_core::{Alert as RuntimeAlert, HostInfo, ScanResult, detect_alerts};
 
 fn map_runtime_alert(alert: &RuntimeAlert) -> (DbAlertType, DbAlertSeverity) {
     let alert_type = match alert.alert_type.as_str() {
@@ -65,13 +65,8 @@ fn persist_alerts(conn: &rusqlite::Connection, alerts: &[RuntimeAlert]) -> usize
             message: &alert.message,
             severity,
         };
-        let result = queries::insert_alert_if_not_exists(
-            conn,
-            &alert_insert,
-            &key,
-            30,
-        )
-        .expect("alert insert should succeed");
+        let result = queries::insert_alert_if_not_exists(conn, &alert_insert, &key, 30)
+            .expect("alert insert should succeed");
 
         if result.is_some() {
             inserted += 1;
@@ -117,11 +112,16 @@ fn test_alert_generation_and_dedupe_across_two_consecutive_scans() {
 
     let scan1 = build_scan(build_host(), 1200);
     let known_first = queries::get_all_devices(&conn).expect("query should work");
-    assert!(known_first.is_empty(), "first scan should start with no known devices");
+    assert!(
+        known_first.is_empty(),
+        "first scan should start with no known devices"
+    );
 
     let alerts_first = detect_alerts(&known_first, &scan1.active_hosts);
     assert!(
-        alerts_first.iter().any(|a| a.alert_type.as_str() == "HIGH_RISK"),
+        alerts_first
+            .iter()
+            .any(|a| a.alert_type.as_str() == "HIGH_RISK"),
         "first scan must generate high-risk alert"
     );
     assert!(
@@ -181,7 +181,13 @@ fn test_alert_generation_and_dedupe_across_two_consecutive_scans() {
         .filter(|a| a.alert_type == DbAlertType::PortChange)
         .count();
 
-    assert_eq!(new_device_count, 1, "new-device alert should appear only once");
+    assert_eq!(
+        new_device_count, 1,
+        "new-device alert should appear only once"
+    );
     assert_eq!(high_risk_count, 1, "high-risk alert should be deduped");
-    assert_eq!(unusual_port_count, 1, "unusual-port alert should be deduped");
+    assert_eq!(
+        unusual_port_count, 1,
+        "unusual-port alert should be deduped"
+    );
 }

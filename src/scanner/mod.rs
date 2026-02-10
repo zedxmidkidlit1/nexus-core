@@ -7,7 +7,7 @@ mod snmp;
 mod tcp;
 
 pub use arp::active_arp_scan;
-pub use icmp::{guess_os_from_ttl, icmp_scan, IcmpResult};
+pub use icmp::{IcmpResult, guess_os_from_ttl, icmp_scan};
 pub use passive::{ArpEvent, ArpMonitor, PassiveScanner};
-pub use snmp::{snmp_enrich, SnmpData, SnmpNeighbor};
+pub use snmp::{SnmpData, SnmpNeighbor, snmp_enrich};
 pub use tcp::tcp_probe_scan;

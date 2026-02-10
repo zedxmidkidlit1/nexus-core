@@ -279,7 +279,10 @@ mod tests {
             .filter_map(|r| r.ok())
             .any(|name| name == "dedupe_key");
 
-        assert!(has_dedupe_key, "alerts.dedupe_key should be added for legacy DBs");
+        assert!(
+            has_dedupe_key,
+            "alerts.dedupe_key should be added for legacy DBs"
+        );
 
         let dedupe_index_exists: bool = conn
             .query_row(
@@ -290,7 +293,10 @@ mod tests {
             .unwrap()
             == 1;
 
-        assert!(dedupe_index_exists, "idx_alerts_dedupe should exist after migration");
+        assert!(
+            dedupe_index_exists,
+            "idx_alerts_dedupe should exist after migration"
+        );
     }
 
     #[test]

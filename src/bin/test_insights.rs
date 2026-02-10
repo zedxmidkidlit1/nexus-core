@@ -1,8 +1,6 @@
 //! Test the AI insights system
 
-use nexus_core::{
-    DeviceDistribution, HostInfo, NetworkHealth, SecurityReport, VendorDistribution,
-};
+use nexus_core::{DeviceDistribution, HostInfo, NetworkHealth, SecurityReport, VendorDistribution};
 
 fn main() {
     println!("=== AI Insights Test ===\n");

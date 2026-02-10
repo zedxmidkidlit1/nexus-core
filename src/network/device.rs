@@ -303,17 +303,17 @@ pub fn infer_device_type(
     }
 
     // Try vendor first (most reliable)
-    if let Some(v) = vendor {
-        if let Some(dt) = infer_device_type_from_vendor(v) {
-            return dt;
-        }
+    if let Some(v) = vendor
+        && let Some(dt) = infer_device_type_from_vendor(v)
+    {
+        return dt;
     }
 
     // Try hostname
-    if let Some(h) = hostname {
-        if let Some(dt) = infer_device_type_from_hostname(h) {
-            return dt;
-        }
+    if let Some(h) = hostname
+        && let Some(dt) = infer_device_type_from_hostname(h)
+    {
+        return dt;
     }
 
     // Try ports
@@ -338,7 +338,7 @@ pub fn calculate_risk_score(
         DeviceType::Server => 20u16,
         DeviceType::Router | DeviceType::Firewall => 15u16,
         DeviceType::Nas => 15u16,
-        DeviceType::Camera => 25u16,    // IoT cameras are often vulnerable
+        DeviceType::Camera => 25u16, // IoT cameras are often vulnerable
         DeviceType::IotDevice => 30u16, // IoT devices are risky
         DeviceType::Printer => 10u16,
         DeviceType::Pc | DeviceType::Laptop => 10u16,

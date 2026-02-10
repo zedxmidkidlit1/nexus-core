@@ -3,7 +3,7 @@
 //! Pre-loaded vulnerability database for offline operation
 
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 /// Seed the CVE cache with curated vulnerabilities
 pub fn seed_vulnerabilities(conn: &Connection) -> Result<()> {

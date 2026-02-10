@@ -2,7 +2,7 @@
 //!
 //! Listens for multicast DNS service announcements without sending packets
 
-use mdns_sd::{ServiceDaemon, ServiceEvent};
+use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -88,7 +88,7 @@ impl PassiveScanner {
     }
 
     /// Parse mDNS service info into PassiveDevice
-    fn parse_mdns_service(&self, info: &mdns_sd::ServiceInfo) -> PassiveDevice {
+    fn parse_mdns_service(&self, info: &ResolvedService) -> PassiveDevice {
         let hostname = info.get_hostname().trim_end_matches('.').to_string();
 
         // Get first available IP address
@@ -100,7 +100,7 @@ impl PassiveScanner {
             .unwrap_or_else(|| "unknown".to_string());
 
         // Infer device type from service type
-        let service_type = info.get_type();
+        let service_type = &info.ty_domain;
         let device_type_hint = match service_type {
             t if t.contains("_airplay") => Some("Apple TV / iOS Device".to_string()),
             t if t.contains("_raop") => Some("AirPlay Speaker".to_string()),

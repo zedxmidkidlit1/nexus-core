@@ -4,8 +4,8 @@
 //! This works on all platforms and avoids Windows build issues.
 
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
+    aead::{Aead, KeyInit, OsRng},
 };
 use argon2::{Algorithm, Argon2, Params, Version};
 use sha2::{Digest, Sha256};
@@ -22,6 +22,7 @@ const ENCRYPTION_HEADER_MAGIC: &[u8] = b"NXS2ENC!";
 const HEADER_MODE_MACHINE: u8 = 0;
 const HEADER_MODE_PASSPHRASE: u8 = 1;
 const KDF_SALT_LEN: usize = 16;
+const PASSPHRASE_ENV_VAR: &str = "NEXUS_DB_ENCRYPTION_PASSPHRASE";
 
 struct ParsedV2Payload {
     mode: u8,
@@ -55,8 +56,8 @@ fn get_machine_binding_material() -> String {
             tracing::warn!("Could not get machine ID: {}, using fallback", e);
             format!(
                 "{}-{}",
-                whoami::username(),
-                whoami::fallible::hostname().unwrap_or_else(|_| "unknown".to_string())
+                whoami::username().unwrap_or_else(|_| "unknown-user".to_string()),
+                whoami::hostname().unwrap_or_else(|_| "unknown-host".to_string())
             )
         }
     }
@@ -119,7 +120,8 @@ fn derive_key_from_string_legacy_sha256(input: &str) -> Result<[u8; 32], Box<dyn
 ///
 /// Creates an encrypted copy of the database with .encrypted extension
 pub fn encrypt_database_file<P: AsRef<Path>>(db_path: P) -> Result<String, Box<dyn Error>> {
-    encrypt_database_file_internal(db_path.as_ref(), None)
+    let passphrase = passphrase_from_env();
+    encrypt_database_file_internal(db_path.as_ref(), passphrase.as_deref())
 }
 
 /// Encrypt database file using a user passphrase and per-file random salt.
@@ -190,7 +192,8 @@ fn encrypt_database_file_internal(
 ///
 /// Decrypts a .encrypted file back to .db
 pub fn decrypt_database_file<P: AsRef<Path>>(encrypted_path: P) -> Result<String, Box<dyn Error>> {
-    decrypt_database_file_internal(encrypted_path.as_ref(), None)
+    let passphrase = passphrase_from_env();
+    decrypt_database_file_internal(encrypted_path.as_ref(), passphrase.as_deref())
 }
 
 /// Decrypt database file using a user passphrase for passphrase-encrypted exports.
@@ -295,8 +298,15 @@ fn generate_kdf_salt() -> [u8; KDF_SALT_LEN] {
     salt
 }
 
-fn build_v2_payload(mode: u8, salt: &[u8; KDF_SALT_LEN], nonce: &[u8; 12], ciphertext: &[u8]) -> Vec<u8> {
-    let mut output = Vec::with_capacity(ENCRYPTION_HEADER_MAGIC.len() + 1 + KDF_SALT_LEN + 12 + ciphertext.len());
+fn build_v2_payload(
+    mode: u8,
+    salt: &[u8; KDF_SALT_LEN],
+    nonce: &[u8; 12],
+    ciphertext: &[u8],
+) -> Vec<u8> {
+    let mut output = Vec::with_capacity(
+        ENCRYPTION_HEADER_MAGIC.len() + 1 + KDF_SALT_LEN + 12 + ciphertext.len(),
+    );
     output.extend_from_slice(ENCRYPTION_HEADER_MAGIC);
     output.push(mode);
     output.extend_from_slice(salt);
@@ -360,6 +370,13 @@ fn decrypted_output_path(encrypted_path: &Path) -> PathBuf {
     }
 }
 
+fn passphrase_from_env() -> Option<String> {
+    std::env::var(PASSPHRASE_ENV_VAR)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -412,7 +429,8 @@ mod tests {
         let test_data = b"passphrase-protected content";
         fs::write(test_db, test_data).unwrap();
 
-        let encrypted_path = encrypt_database_file_with_passphrase(test_db, "s3cr3t-passphrase").unwrap();
+        let encrypted_path =
+            encrypt_database_file_with_passphrase(test_db, "s3cr3t-passphrase").unwrap();
         assert!(Path::new(&encrypted_path).exists());
 
         let decrypted_path =
@@ -430,7 +448,8 @@ mod tests {
         let test_db = "test_requires_passphrase.db";
         fs::write(test_db, b"needs passphrase").unwrap();
 
-        let encrypted_path = encrypt_database_file_with_passphrase(test_db, "required-secret").unwrap();
+        let encrypted_path =
+            encrypt_database_file_with_passphrase(test_db, "required-secret").unwrap();
         let err = decrypt_database_file(&encrypted_path).expect_err("must require passphrase");
         assert!(err.to_string().contains("requires a passphrase"));
 
