@@ -14,6 +14,10 @@ const FONT_SIZE_TITLE: f32 = 24.0;
 const FONT_SIZE_HEADING: f32 = 16.0;
 const FONT_SIZE_SUBHEADING: f32 = 12.0;
 const FONT_SIZE_BODY: f32 = 10.0;
+const DEVICE_COL_IP_X: f32 = 20.0;
+const DEVICE_COL_HOSTNAME_X: f32 = 60.0;
+const DEVICE_COL_TYPE_X: f32 = 100.0;
+const DEVICE_COL_RISK_X: f32 = 150.0;
 
 /// Generate a scan report PDF
 pub fn generate_scan_report_pdf(
@@ -27,7 +31,7 @@ pub fn generate_scan_report_pdf(
     let font = doc.add_builtin_font(BuiltinFont::Helvetica)?;
     let font_bold = doc.add_builtin_font(BuiltinFont::HelveticaBold)?;
 
-    let current_layer = doc.get_page(page1).get_layer(layer1);
+    let mut current_layer = doc.get_page(page1).get_layer(layer1);
 
     let mut y_pos = 270.0; // Start from top
 
@@ -133,65 +137,40 @@ pub fn generate_scan_report_pdf(
 
     // === DEVICE INVENTORY ===
     draw_section_header(&current_layer, &font_bold, "Device Inventory", &mut y_pos);
+    draw_device_table_header(&current_layer, &font_bold, &mut y_pos);
 
-    // Table header
-    let col1_x = 20.0;
-    let col2_x = 60.0;
-    let col3_x = 100.0;
-    let col4_x = 150.0;
+    // Device rows (fully paginated)
+    for device in devices {
+        if y_pos < 20.0 {
+            let (next_page, next_layer) =
+                doc.add_page(Mm(210.0), Mm(297.0), "Device Inventory Continued");
+            current_layer = doc.get_page(next_page).get_layer(next_layer);
+            y_pos = 270.0;
 
-    current_layer.use_text(
-        "IP Address",
-        FONT_SIZE_BODY,
-        Mm(col1_x),
-        Mm(y_pos),
-        &font_bold,
-    );
-    current_layer.use_text(
-        "Hostname",
-        FONT_SIZE_BODY,
-        Mm(col2_x),
-        Mm(y_pos),
-        &font_bold,
-    );
-    current_layer.use_text(
-        "Device Type",
-        FONT_SIZE_BODY,
-        Mm(col3_x),
-        Mm(y_pos),
-        &font_bold,
-    );
-    current_layer.use_text(
-        "Risk Score",
-        FONT_SIZE_BODY,
-        Mm(col4_x),
-        Mm(y_pos),
-        &font_bold,
-    );
-    y_pos -= 8.0;
-
-    // Device rows (limit to first 20 for now)
-    for device in devices.iter().take(20) {
-        if y_pos < 30.0 {
-            // Add new page if needed
-            break;
+            draw_section_header(
+                &current_layer,
+                &font_bold,
+                "Device Inventory (continued)",
+                &mut y_pos,
+            );
+            draw_device_table_header(&current_layer, &font_bold, &mut y_pos);
         }
 
         current_layer.use_text(
             device.ip.to_string(),
             FONT_SIZE_BODY,
-            Mm(col1_x),
+            Mm(DEVICE_COL_IP_X),
             Mm(y_pos),
             &font,
         );
 
         let hostname = device.hostname.as_deref().unwrap_or("N/A");
-        current_layer.use_text(hostname, FONT_SIZE_BODY, Mm(col2_x), Mm(y_pos), &font);
+        current_layer.use_text(hostname, FONT_SIZE_BODY, Mm(DEVICE_COL_HOSTNAME_X), Mm(y_pos), &font);
 
         current_layer.use_text(
             &device.device_type,
             FONT_SIZE_BODY,
-            Mm(col3_x),
+            Mm(DEVICE_COL_TYPE_X),
             Mm(y_pos),
             &font,
         );
@@ -199,7 +178,7 @@ pub fn generate_scan_report_pdf(
         current_layer.use_text(
             device.risk_score.to_string(),
             FONT_SIZE_BODY,
-            Mm(col4_x),
+            Mm(DEVICE_COL_RISK_X),
             Mm(y_pos),
             &font,
         );
@@ -223,7 +202,7 @@ pub fn generate_network_health_pdf(recommendations: &SecurityReport) -> Result<V
     let font = doc.add_builtin_font(BuiltinFont::Helvetica)?;
     let font_bold = doc.add_builtin_font(BuiltinFont::HelveticaBold)?;
 
-    let current_layer = doc.get_page(page1).get_layer(layer1);
+    let mut current_layer = doc.get_page(page1).get_layer(layer1);
 
     let mut y_pos = 270.0;
 
@@ -293,8 +272,17 @@ pub fn generate_network_health_pdf(recommendations: &SecurityReport) -> Result<V
     );
 
     for rec in recommendations.recommendations.iter() {
-        if y_pos < 30.0 {
-            break;
+        if y_pos < 35.0 {
+            let (next_page, next_layer) =
+                doc.add_page(Mm(210.0), Mm(297.0), "Recommendations Continued");
+            current_layer = doc.get_page(next_page).get_layer(next_layer);
+            y_pos = 270.0;
+            draw_section_header(
+                &current_layer,
+                &font_bold,
+                "Security Recommendations (continued)",
+                &mut y_pos,
+            );
         }
 
         // Priority badge
@@ -347,6 +335,38 @@ fn draw_section_header(
 ) {
     layer.use_text(title, FONT_SIZE_HEADING, Mm(20.0), Mm(*y_pos), font_bold);
     *y_pos -= 10.0;
+}
+
+fn draw_device_table_header(layer: &PdfLayerReference, font_bold: &IndirectFontRef, y_pos: &mut f32) {
+    layer.use_text(
+        "IP Address",
+        FONT_SIZE_BODY,
+        Mm(DEVICE_COL_IP_X),
+        Mm(*y_pos),
+        font_bold,
+    );
+    layer.use_text(
+        "Hostname",
+        FONT_SIZE_BODY,
+        Mm(DEVICE_COL_HOSTNAME_X),
+        Mm(*y_pos),
+        font_bold,
+    );
+    layer.use_text(
+        "Device Type",
+        FONT_SIZE_BODY,
+        Mm(DEVICE_COL_TYPE_X),
+        Mm(*y_pos),
+        font_bold,
+    );
+    layer.use_text(
+        "Risk Score",
+        FONT_SIZE_BODY,
+        Mm(DEVICE_COL_RISK_X),
+        Mm(*y_pos),
+        font_bold,
+    );
+    *y_pos -= 8.0;
 }
 
 #[cfg(test)]
