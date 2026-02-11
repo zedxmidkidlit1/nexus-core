@@ -63,17 +63,18 @@ This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../S
 
 ### 📡 Background Monitor Module — Real-Time Monitoring
 
-- **Continuous Scanning** — Background ARP+TCP+DNS scan loop at configurable intervals (10–3600 seconds)
+- **Continuous Scanning** — Background ARP+TCP+DNS scan loop at configurable intervals (default clamp: 10–3600 seconds; env-overridable)
 - **Live Change Detection** — Compares consecutive scans to emit real-time events:
   - `NewDeviceDiscovered`, `DeviceWentOffline`, `DeviceCameOnline`, `DeviceIpChanged`
 - **Offline Device Retention** — Tracks recently-offline devices for 1 hour to detect "came back online" events
 - **Progress Events** — 5 scan phases reported: INIT (5%), ARP (20%), TCP (50%), DNS (80%), COMPLETE (100%)
 - **Idempotent Start** — Calling `start()` when running just updates interval without restarting
+- **Single-Interface Session Pinning** — Monitor can be started on a user-selected interface and remains pinned for the full session
 - **Graceful Shutdown** — 1-second granular stop checks prevent long waits
 - **Event Callbacks** — Framework-agnostic `Fn(NetworkEvent)` for Tauri IPC integration
 - **Passive Discovery Integration** — mDNS/ARP passive listeners with `DeviceSnapshot` conversion helpers
 
-### 📊 Insights Module — AI-Powered Analytics
+### 📊 Insights Module — Analytics & Recommendations
 
 - **Network Health Score** — 0–100 composite score with letter grade (A–F):
   - Security component (0–40 points): based on high/medium risk device counts
@@ -181,6 +182,8 @@ Core scanner behavior can now be tuned at runtime via environment variables:
 - `NEXUS_PING_TIMEOUT_MS`
 - `NEXUS_PING_RETRIES`
 - `NEXUS_ARP_MAX_WAIT_MS`
+- `NEXUS_ARP_CHECK_INTERVAL_MS`
+- `NEXUS_ARP_IDLE_TIMEOUT_MS`
 - `NEXUS_ARP_ROUNDS`
 - `NEXUS_TCP_PROBE_TIMEOUT_MS`
 - `NEXUS_TCP_PROBE_PORTS` (comma-separated, e.g. `22,80,443,3389`)
@@ -191,6 +194,7 @@ Core scanner behavior can now be tuned at runtime via environment variables:
 - `NEXUS_DEFAULT_MONITOR_INTERVAL`
 - `NEXUS_MIN_MONITOR_INTERVAL`
 - `NEXUS_MAX_MONITOR_INTERVAL`
+- `NEXUS_CAME_ONLINE_STALE_MINUTES`
 
 ---
 
@@ -233,7 +237,7 @@ NEXUS-core/
 │   │   └── types.rs        # 6 alert types + 4 severity levels
 │   ├── monitor/
 │   │   ├── watcher.rs      # Background scan loop + live change detection
-│   │   ├── events.rs       # 7 NetworkEvent types for frontend IPC
+│   │   ├── events.rs       # 10 NetworkEvent types for frontend IPC
 │   │   └── passive_integration.rs  # mDNS/ARP listener helpers
 │   ├── insights/
 │   │   ├── health.rs       # 3-component health score (security/stability/compliance)
@@ -257,38 +261,28 @@ NEXUS-core/
 
 ---
 
-## 🚀 Upgrade Plan (v0.4.0 → v0.5.0)
+## 🚀 Roadmap Status (As of 2026-02-11)
 
-### Phase 1 — Critical Fixes (Pre-Demo) 🔴
+### Completed in v0.5.0-dev
 
-> Must be completed before the TU Project Show demo.
+- [x] **Release hardening profile** — Tuned `[profile.release]` (`opt-level=3`, thin LTO, single codegen unit, strip symbols, panic abort)
+- [x] **Benchmark tooling + load-test mode** — Added `scripts/benchmark.ps1` and CLI `load-test` command with JSON summary
+- [x] **Fix PDF multi-page reports** — Pagination and continuation headers implemented, no hard 20-device cap
+- [x] **Persist risk scores in database** — `risk_score` is stored, migrated for legacy DBs, and exported in CSV/JSON/PDF flows
+- [x] **Wire passive scanning into BackgroundMonitor** — Passive listeners start in monitor and merge into active scan snapshots
+- [x] **Generate DeviceCameOnline alerts** — Return-to-network lifecycle is emitted for previously offline devices
+- [x] **Fix MonitoringStatus total count** — `devices_total` now reflects session-wide unique devices seen
+- [x] **Configurable SNMP community/timeout/port** — Runtime-configurable via environment variables
 
-- [ ] **Fix PDF multi-page reports** — Add page break logic; remove 20-device limit so all devices appear in generated PDFs
-- [ ] **Persist risk scores in database** — Add `risk_score` column to `devices` table; update `DeviceRecord`, `insert_scan_with_devices()`, and CSV export to use actual scores instead of hardcoded "0"
-- [ ] **Wire passive scanning into BackgroundMonitor** — Call `start_passive_listeners()` in `BackgroundMonitor::start()`; merge mDNS discoveries and ARP enrichment into the live device map
-- [ ] **Error recovery for background scans** — Add connection retry logic and proper error propagation instead of silent `Utc::now()` fallbacks
+### Remaining backlog
 
-### Phase 2 — Feature Completion (High Impact) 🟡
-
-> Complete the partially-implemented features for a polished showcase.
-
-- [ ] **Implement SNMP LLDP topology discovery** — Activate the already-defined LLDP OIDs (`lldpRemSysName`, `lldpRemPortId`, `lldpRemChassisId`); walk the LLDP remote table to build real layer-2 topology connections instead of star topology
-- [ ] **Add database port security recommendations** — Flag exposed ports 3306 (MySQL), 5432 (PostgreSQL), 27017 (MongoDB), 1433 (MSSQL) in the recommendations engine
-- [ ] **Generate DeviceCameOnline alerts** — Track last-seen timestamps to detect when previously-offline devices return; complete the alert lifecycle (discovered → offline → back online)
-- [ ] **AI-powered network intelligence** — Integrate Gemini/Ollama for natural language scan summaries, anomaly detection, and predictive insights
-
-### Phase 3 — Polish & Production Hardening 🟢
-
-> Robustness improvements for real-world deployment.
-
-- [ ] **Configurable SNMP community strings** — Accept via CLI argument or config file; fall back to "public" if unspecified
-- [ ] **Add ICMP/SNMP to background scans** — Include ping + SNMP enrichment phases in monitor scans for richer data (with configurable toggle for speed vs. accuracy)
-- [ ] **Fix MonitoringStatus total count** — Track `total_unique_devices_seen` across all scans instead of reporting `devices_total = devices_online`
-- [ ] **Rogue device detection** — Trusted device whitelist with auto-alert for unknown MACs
-- [ ] **Custom alert rules engine** — User-defined alert conditions (port ranges, risk thresholds, schedule)
-- [ ] **Enhanced CVE database** — Auto-update from NVD/NIST feeds with local caching
-- [ ] **Bandwidth monitoring** — Per-device traffic statistics using packet capture analysis
-- [ ] **Predictive analytics** — Device offline prediction based on historical uptime patterns
+- [ ] **SNMP LLDP topology discovery** — LLDP OIDs are defined, but remote-table walk + topology edge construction is still pending
+- [ ] **DB-port recommendation parity in insights engine** — Port warnings exist, but recommendations do not yet elevate DB ports (3306/5432/27017/1433) as dedicated advice
+- [ ] **AI model integration** — No Gemini/Ollama summarization/anomaly pipeline is implemented yet
+- [ ] **Optional ICMP/SNMP in monitor loop** — Current monitor scan path is ARP + TCP + DNS (SNMP optional in main scan path only)
+- [ ] **Rogue-device trust policy** — No user-managed MAC allowlist/rules engine yet
+- [ ] **Auto-refresh CVE feeds** — CVE/port warning seeds are local; no automatic NVD sync pipeline yet
+- [ ] **Bandwidth and predictive uptime analytics** — Not implemented
 
 ---
 
