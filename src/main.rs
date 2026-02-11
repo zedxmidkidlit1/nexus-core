@@ -7,6 +7,7 @@
 //! - SNMP enrichment (optional)
 
 use anyhow::{Context, Result};
+use serde::Serialize;
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
@@ -32,10 +33,19 @@ macro_rules! log_error {
 }
 
 const ARP_PHASE_TIMEOUT_SECS: u64 = 15;
+const DEFAULT_LOAD_TEST_ITERATIONS: u32 = 5;
+const DEFAULT_LOAD_TEST_CONCURRENCY: usize = 1;
 
 #[derive(Debug, PartialEq, Eq)]
 enum CliCommand {
-    Scan { interface: Option<String> },
+    Scan {
+        interface: Option<String>,
+    },
+    LoadTest {
+        interface: Option<String>,
+        iterations: u32,
+        concurrency: usize,
+    },
     Interfaces,
     Help,
     Version,
@@ -52,16 +62,43 @@ NEXUS Core Engine — Network Discovery CLI
 
 Usage:
   nexus-core [scan] [--interface <NAME>]
+  nexus-core load-test [--interface <NAME>] [--iterations <N>] [--concurrency <N>]
   nexus-core interfaces
   nexus-core --help
   nexus-core --version
 
 Options:
   -i, --interface <NAME>  Select network interface by exact name
+      --iterations <N>    Load-test: number of scans to run (default: {default_iterations})
+      --concurrency <N>   Load-test: concurrent scans per batch (default: {default_concurrency})
   -h, --help              Show this help text
   -V, --version           Show version",
-        version = version_text()
+        version = version_text(),
+        default_iterations = DEFAULT_LOAD_TEST_ITERATIONS,
+        default_concurrency = DEFAULT_LOAD_TEST_CONCURRENCY
     )
+}
+
+fn parse_u32_arg(flag: &str, raw: &str) -> Result<u32> {
+    raw.parse::<u32>().ok().filter(|v| *v > 0).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Invalid value for {}: '{}'. Expected a positive integer.\n\n{}",
+            flag,
+            raw,
+            usage_text()
+        )
+    })
+}
+
+fn parse_usize_arg(flag: &str, raw: &str) -> Result<usize> {
+    raw.parse::<usize>().ok().filter(|v| *v > 0).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Invalid value for {}: '{}'. Expected a positive integer.\n\n{}",
+            flag,
+            raw,
+            usage_text()
+        )
+    })
 }
 
 fn parse_cli_args<I, S>(args: I) -> Result<CliCommand>
@@ -74,13 +111,15 @@ where
 
     let mut command: Option<String> = None;
     let mut interface: Option<String> = None;
+    let mut iterations: Option<u32> = None;
+    let mut concurrency: Option<usize> = None;
 
     while let Some(arg) = iter.next() {
         let arg = arg.as_ref();
         match arg {
             "-h" | "--help" => return Ok(CliCommand::Help),
             "-V" | "--version" => return Ok(CliCommand::Version),
-            "scan" | "interfaces" => {
+            "scan" | "interfaces" | "load-test" => {
                 if command.as_deref().is_some_and(|existing| existing != arg) {
                     return Err(anyhow::anyhow!(
                         "Multiple commands provided. Use only one command.\n\n{}",
@@ -95,6 +134,18 @@ where
                 })?;
                 interface = Some(value.as_ref().to_string());
             }
+            "--iterations" => {
+                let value = iter.next().ok_or_else(|| {
+                    anyhow::anyhow!("Missing value for --iterations.\n\n{}", usage_text())
+                })?;
+                iterations = Some(parse_u32_arg("--iterations", value.as_ref())?);
+            }
+            "--concurrency" => {
+                let value = iter.next().ok_or_else(|| {
+                    anyhow::anyhow!("Missing value for --concurrency.\n\n{}", usage_text())
+                })?;
+                concurrency = Some(parse_usize_arg("--concurrency", value.as_ref())?);
+            }
             _ if arg.starts_with("--interface=") => {
                 let value = arg.split_once('=').map(|(_, v)| v).unwrap_or_default();
                 if value.is_empty() {
@@ -104,6 +155,26 @@ where
                     ));
                 }
                 interface = Some(value.to_string());
+            }
+            _ if arg.starts_with("--iterations=") => {
+                let value = arg.split_once('=').map(|(_, v)| v).unwrap_or_default();
+                if value.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Missing value for --iterations.\n\n{}",
+                        usage_text()
+                    ));
+                }
+                iterations = Some(parse_u32_arg("--iterations", value)?);
+            }
+            _ if arg.starts_with("--concurrency=") => {
+                let value = arg.split_once('=').map(|(_, v)| v).unwrap_or_default();
+                if value.is_empty() {
+                    return Err(anyhow::anyhow!(
+                        "Missing value for --concurrency.\n\n{}",
+                        usage_text()
+                    ));
+                }
+                concurrency = Some(parse_usize_arg("--concurrency", value)?);
             }
             _ => {
                 return Err(anyhow::anyhow!(
@@ -115,11 +186,24 @@ where
     }
 
     match command.as_deref().unwrap_or("scan") {
-        "scan" => Ok(CliCommand::Scan { interface }),
-        "interfaces" => {
-            if interface.is_some() {
+        "scan" => {
+            if iterations.is_some() || concurrency.is_some() {
                 return Err(anyhow::anyhow!(
-                    "--interface is only valid with scan.\n\n{}",
+                    "--iterations/--concurrency are only valid with load-test.\n\n{}",
+                    usage_text()
+                ));
+            }
+            Ok(CliCommand::Scan { interface })
+        }
+        "load-test" => Ok(CliCommand::LoadTest {
+            interface,
+            iterations: iterations.unwrap_or(DEFAULT_LOAD_TEST_ITERATIONS),
+            concurrency: concurrency.unwrap_or(DEFAULT_LOAD_TEST_CONCURRENCY),
+        }),
+        "interfaces" => {
+            if interface.is_some() || iterations.is_some() || concurrency.is_some() {
+                return Err(anyhow::anyhow!(
+                    "--interface/--iterations/--concurrency are only valid with scan or load-test.\n\n{}",
                     usage_text()
                 ));
             }
@@ -127,6 +211,84 @@ where
         }
         _ => unreachable!(),
     }
+}
+
+#[derive(Debug, Serialize)]
+struct LoadTestSummary {
+    interface_name: String,
+    iterations: u32,
+    concurrency: usize,
+    successful_scans: u32,
+    failed_scans: u32,
+    wall_time_ms: u64,
+    avg_scan_duration_ms: f64,
+    min_scan_duration_ms: u64,
+    max_scan_duration_ms: u64,
+    avg_hosts_found: f64,
+}
+
+async fn run_load_test(
+    interface: &InterfaceInfo,
+    iterations: u32,
+    concurrency: usize,
+) -> Result<LoadTestSummary> {
+    let started = Instant::now();
+    let mut remaining = iterations;
+    let mut successful_scans: u32 = 0;
+    let mut failed_scans: u32 = 0;
+    let mut scan_durations: Vec<u64> = Vec::new();
+    let mut host_counts: Vec<usize> = Vec::new();
+
+    while remaining > 0 {
+        let batch_size = std::cmp::min(remaining as usize, concurrency);
+        let mut batch = Vec::with_capacity(batch_size);
+        for _ in 0..batch_size {
+            let iface = interface.clone();
+            batch.push(tokio::spawn(async move { scan_network(&iface).await }));
+        }
+
+        for result in batch {
+            match result.await {
+                Ok(Ok(scan)) => {
+                    successful_scans += 1;
+                    scan_durations.push(scan.scan_duration_ms);
+                    host_counts.push(scan.total_hosts);
+                }
+                Ok(Err(_)) | Err(_) => {
+                    failed_scans += 1;
+                }
+            }
+        }
+
+        remaining -= batch_size as u32;
+    }
+
+    let wall_time_ms = started.elapsed().as_millis() as u64;
+    let avg_scan_duration_ms = if scan_durations.is_empty() {
+        0.0
+    } else {
+        scan_durations.iter().sum::<u64>() as f64 / scan_durations.len() as f64
+    };
+    let min_scan_duration_ms = scan_durations.iter().copied().min().unwrap_or(0);
+    let max_scan_duration_ms = scan_durations.iter().copied().max().unwrap_or(0);
+    let avg_hosts_found = if host_counts.is_empty() {
+        0.0
+    } else {
+        host_counts.iter().sum::<usize>() as f64 / host_counts.len() as f64
+    };
+
+    Ok(LoadTestSummary {
+        interface_name: interface.name.clone(),
+        iterations,
+        concurrency,
+        successful_scans,
+        failed_scans,
+        wall_time_ms,
+        avg_scan_duration_ms,
+        min_scan_duration_ms,
+        max_scan_duration_ms,
+        avg_hosts_found,
+    })
 }
 
 /// Performs the complete network scan
@@ -391,6 +553,37 @@ where
             println!("{}", json);
             Ok(())
         }
+        CliCommand::LoadTest {
+            interface,
+            iterations,
+            concurrency,
+        } => {
+            log_stderr!(
+                "NEXUS Core Engine — Load Test v{} (iterations={}, concurrency={})",
+                env!("CARGO_PKG_VERSION"),
+                iterations,
+                concurrency
+            );
+
+            let selected_interface = match interface {
+                Some(name) => {
+                    log_stderr!("Using requested interface: {}", name);
+                    find_interface_by_name(&name)?
+                }
+                None => {
+                    log_stderr!("Detecting network interfaces...");
+                    find_valid_interface()?
+                }
+            };
+
+            let summary = run_load_test(&selected_interface, iterations, concurrency).await?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summary)
+                    .context("Failed to serialize load-test summary")?
+            );
+            Ok(())
+        }
     }
 }
 
@@ -436,6 +629,37 @@ mod tests {
         let args = ["nexus-core", "interfaces"];
         let parsed = parse_cli_args(args).expect("interfaces command should parse");
         assert_eq!(parsed, CliCommand::Interfaces);
+    }
+
+    #[test]
+    fn parse_load_test_command_with_options() {
+        let args = [
+            "nexus-core",
+            "load-test",
+            "--interface",
+            "Ethernet",
+            "--iterations",
+            "10",
+            "--concurrency",
+            "2",
+        ];
+        let parsed = parse_cli_args(args).expect("load-test command should parse");
+        assert_eq!(
+            parsed,
+            CliCommand::LoadTest {
+                interface: Some("Ethernet".to_string()),
+                iterations: 10,
+                concurrency: 2
+            }
+        );
+    }
+
+    #[test]
+    fn parse_scan_rejects_load_test_options() {
+        let args = ["nexus-core", "scan", "--iterations", "3"];
+        let err = parse_cli_args(args).expect_err("scan should reject load-test-only options");
+        let msg = err.to_string();
+        assert!(msg.contains("--iterations/--concurrency are only valid with load-test"));
     }
 
     #[test]

@@ -138,6 +138,9 @@ cargo run -- interfaces
 # Scan a specific interface
 cargo run -- scan --interface "<INTERFACE_NAME>"
 
+# Run built-in load test mode (batch scan runner)
+cargo run -- load-test --interface "<INTERFACE_NAME>" --iterations 10 --concurrency 2
+
 # Enable optional PDF export backend
 cargo build --features pdf-export
 
@@ -151,6 +154,23 @@ cargo run --bin test_insights
 # Lint
 cargo clippy --all-targets
 ```
+
+## Release Hardening & Benchmarking (v0.5)
+
+- `Cargo.toml` includes hardened release settings under `[profile.release]`:
+  - `opt-level = 3`, `lto = "thin"`, `codegen-units = 1`
+  - `strip = "symbols"`, `panic = "abort"`, `incremental = false`
+- For reproducible CLI timing runs, use `scripts/benchmark.ps1`:
+
+```powershell
+# Build release + run N scan iterations
+pwsh ./scripts/benchmark.ps1 -Mode scan -Iterations 5
+
+# Build release + run load-test mode
+pwsh ./scripts/benchmark.ps1 -Mode load-test -Iterations 20 -Concurrency 4
+```
+
+`load-test` output is JSON (`successful_scans`, `failed_scans`, duration and host-count aggregates), so it can be fed into CI/perf dashboards.
 
 ## Runtime Tuning (v0.5)
 
@@ -230,6 +250,8 @@ NEXUS-core/
 │   └── bin/
 │       ├── test_alerts.rs  # Alert detection test binary
 │       └── test_insights.rs # Insights system test binary
+├── scripts/
+│   └── benchmark.ps1       # Release benchmark/load-test runner
 └── .gitignore
 ```
 
