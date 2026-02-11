@@ -11,10 +11,10 @@ use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
 use nexus_core::{
-    HostInfo, InterfaceInfo, NeighborInfo, SNMP_ENABLED, ScanResult, active_arp_scan,
-    calculate_risk_score, calculate_subnet_ips, dns_scan, find_interface_by_name,
-    find_valid_interface, guess_os_from_ttl, icmp_scan, infer_device_type, list_valid_interfaces,
-    lookup_vendor_info, snmp_enrich, tcp_probe_scan,
+    HostInfo, InterfaceInfo, NeighborInfo, ScanResult, active_arp_scan, calculate_risk_score,
+    calculate_subnet_ips, dns_scan, find_interface_by_name, find_valid_interface,
+    guess_os_from_ttl, icmp_scan, infer_device_type, list_valid_interfaces, lookup_vendor_info,
+    snmp_enabled, snmp_enrich, tcp_probe_scan,
 };
 
 /// Logs a message to stderr
@@ -175,7 +175,8 @@ async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult> {
         .copied()
         .collect();
 
-    let snmp_data = if SNMP_ENABLED {
+    let snmp_is_enabled = snmp_enabled();
+    let snmp_data = if snmp_is_enabled {
         match snmp_enrich(&host_ips).await {
             Ok(data) => data,
             Err(e) => {
@@ -304,7 +305,7 @@ async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult> {
         scan_duration.as_secs_f64()
     );
 
-    let scan_method = if SNMP_ENABLED {
+    let scan_method = if snmp_is_enabled {
         "Active ARP + ICMP + TCP + SNMP".to_string()
     } else {
         "Active ARP + ICMP + TCP".to_string()

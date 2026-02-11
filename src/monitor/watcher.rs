@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 
 use super::events::{DeviceSnapshot, MonitoringStatus, NetworkEvent};
 use super::passive_integration::{passive_device_to_snapshot, start_passive_listeners};
-use crate::config::{DEFAULT_MONITOR_INTERVAL, MAX_MONITOR_INTERVAL, MIN_MONITOR_INTERVAL};
+use crate::config::{default_monitor_interval, max_monitor_interval, min_monitor_interval};
 use crate::{
     InterfaceInfo, active_arp_scan, calculate_subnet_ips, dns_scan, find_interface_by_name,
     find_valid_interface, infer_device_type, lookup_vendor_info, tcp_probe_scan,
@@ -51,7 +51,7 @@ impl BackgroundMonitor {
     pub fn new() -> Self {
         Self {
             is_running: Arc::new(AtomicBool::new(false)),
-            interval_seconds: Arc::new(Mutex::new(DEFAULT_MONITOR_INTERVAL)),
+            interval_seconds: Arc::new(Mutex::new(default_monitor_interval())),
             scan_count: Arc::new(AtomicU32::new(0)),
             last_scan_time: Arc::new(Mutex::new(None)),
             previous_devices: Arc::new(Mutex::new(HashMap::new())),
@@ -84,8 +84,8 @@ impl BackgroundMonitor {
         F: Fn(NetworkEvent) + Send + Sync + 'static,
     {
         let requested_interval = interval
-            .unwrap_or(DEFAULT_MONITOR_INTERVAL)
-            .clamp(MIN_MONITOR_INTERVAL, MAX_MONITOR_INTERVAL);
+            .unwrap_or(default_monitor_interval())
+            .clamp(min_monitor_interval(), max_monitor_interval());
 
         if self.is_running.load(Ordering::SeqCst) {
             // Idempotent start: keep current loop and optionally update interval.

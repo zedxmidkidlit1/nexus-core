@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::config::{ARP_CHECK_INTERVAL_MS, ARP_IDLE_TIMEOUT_MS, ARP_MAX_WAIT_MS, ARP_ROUNDS};
+use crate::config::{arp_check_interval_ms, arp_idle_timeout_ms, arp_max_wait_ms, arp_rounds};
 use crate::models::InterfaceInfo;
 use crate::network::is_special_address;
 
@@ -70,6 +70,11 @@ pub fn active_arp_scan(
     target_ips: &[Ipv4Addr],
     subnet: &Ipv4Network,
 ) -> Result<HashMap<Ipv4Addr, MacAddr>> {
+    let cfg_arp_max_wait_ms = arp_max_wait_ms();
+    let cfg_arp_check_interval_ms = arp_check_interval_ms();
+    let cfg_arp_idle_timeout_ms = arp_idle_timeout_ms();
+    let cfg_arp_rounds = arp_rounds();
+
     log_stderr!(
         "Phase 1: Active ARP scanning {} hosts (adaptive timing)...",
         target_ips.len()
@@ -114,7 +119,7 @@ pub fn active_arp_scan(
     let scan_start = Instant::now();
 
     // Calculate total timeout for receiver thread (all rounds + buffer)
-    let total_timeout = Duration::from_millis(ARP_MAX_WAIT_MS * ARP_ROUNDS as u64 + 500);
+    let total_timeout = Duration::from_millis(cfg_arp_max_wait_ms * cfg_arp_rounds as u64 + 500);
 
     let discovered_clone = Arc::clone(&discovered);
     let host_count_clone = Arc::clone(&host_count);
@@ -167,7 +172,7 @@ pub fn active_arp_scan(
     std::thread::sleep(Duration::from_millis(10));
 
     // Adaptive ARP scan rounds
-    for round in 1..=ARP_ROUNDS {
+    for round in 1..=cfg_arp_rounds {
         let round_start = Instant::now();
         let initial_count = host_count.load(Ordering::SeqCst);
 
@@ -184,14 +189,18 @@ pub fn active_arp_scan(
         };
 
         if remaining.is_empty() {
-            log_stderr!("Round {}/{}: All hosts found, skipping", round, ARP_ROUNDS);
+            log_stderr!(
+                "Round {}/{}: All hosts found, skipping",
+                round,
+                cfg_arp_rounds
+            );
             break;
         }
 
         log_stderr!(
             "Round {}/{}: Blasting {} requests ({} already found)...",
             round,
-            ARP_ROUNDS,
+            cfg_arp_rounds,
             remaining.len(),
             initial_count
         );
@@ -232,9 +241,9 @@ pub fn active_arp_scan(
         }
 
         // ADAPTIVE WAIT: Check periodically, stop early if idle
-        let max_wait = Duration::from_millis(ARP_MAX_WAIT_MS);
-        let check_interval = Duration::from_millis(ARP_CHECK_INTERVAL_MS);
-        let idle_timeout = Duration::from_millis(ARP_IDLE_TIMEOUT_MS);
+        let max_wait = Duration::from_millis(cfg_arp_max_wait_ms);
+        let check_interval = Duration::from_millis(cfg_arp_check_interval_ms);
+        let idle_timeout = Duration::from_millis(cfg_arp_idle_timeout_ms);
 
         let mut last_count = host_count.load(Ordering::SeqCst);
         let mut last_change = Instant::now();
@@ -253,7 +262,7 @@ pub fn active_arp_scan(
                 log_stderr!(
                     "Round {} early exit: no new hosts for {}ms",
                     round,
-                    ARP_IDLE_TIMEOUT_MS
+                    cfg_arp_idle_timeout_ms
                 );
                 break;
             }

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore};
 use tokio::time::timeout;
 
-use crate::config::{SNMP_COMMUNITY, SNMP_PORT, SNMP_TIMEOUT};
+use crate::config::{snmp_community, snmp_port, snmp_timeout};
 
 /// Logs a message to stderr
 macro_rules! log_stderr {
@@ -64,13 +64,18 @@ const OID_LLDP_REM_SYS_NAME: &[u64] = &[1, 0, 8802, 1, 1, 2, 1, 4, 1, 1, 9];
 const MAX_CONCURRENT_SNMP: usize = 20;
 
 /// Query a single host for SNMP data
-async fn query_host_snmp(ip: Ipv4Addr) -> Option<SnmpData> {
-    let addr = format!("{}:{}", ip, SNMP_PORT);
+async fn query_host_snmp(
+    ip: Ipv4Addr,
+    port: u16,
+    timeout_dur: std::time::Duration,
+    community: &str,
+) -> Option<SnmpData> {
+    let addr = format!("{}:{}", ip, port);
 
     // Create async session with SNMPv2c
     let mut session = match timeout(
-        SNMP_TIMEOUT,
-        AsyncSession::new_v2c(&addr, SNMP_COMMUNITY.as_bytes(), 0),
+        timeout_dur,
+        AsyncSession::new_v2c(&addr, community.as_bytes(), 0),
     )
     .await
     {
@@ -82,7 +87,7 @@ async fn query_host_snmp(ip: Ipv4Addr) -> Option<SnmpData> {
 
     // Query sysName
     if let Ok(oid) = Oid::from(OID_SYS_NAME)
-        && let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await
+        && let Ok(Ok(mut response)) = timeout(timeout_dur, session.get(&oid)).await
         && let Some((_, Value::OctetString(bytes))) = response.varbinds.next()
     {
         let name = String::from_utf8_lossy(bytes).trim().to_string();
@@ -93,7 +98,7 @@ async fn query_host_snmp(ip: Ipv4Addr) -> Option<SnmpData> {
 
     // Query sysDescr
     if let Ok(oid) = Oid::from(OID_SYS_DESCR)
-        && let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await
+        && let Ok(Ok(mut response)) = timeout(timeout_dur, session.get(&oid)).await
         && let Some((_, Value::OctetString(bytes))) = response.varbinds.next()
     {
         let descr = String::from_utf8_lossy(bytes).trim().to_string();
@@ -110,7 +115,7 @@ async fn query_host_snmp(ip: Ipv4Addr) -> Option<SnmpData> {
 
     // Query sysUpTime (in centiseconds, convert to seconds)
     if let Ok(oid) = Oid::from(OID_SYS_UPTIME)
-        && let Ok(Ok(mut response)) = timeout(SNMP_TIMEOUT, session.get(&oid)).await
+        && let Ok(Ok(mut response)) = timeout(timeout_dur, session.get(&oid)).await
         && let Some((_, Value::Timeticks(ticks))) = response.varbinds.next()
     {
         // Timeticks is in centiseconds (1/100 sec)
@@ -139,12 +144,16 @@ pub async fn snmp_enrich(hosts: &[Ipv4Addr]) -> Result<HashMap<Ipv4Addr, SnmpDat
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_SNMP));
     let results = Arc::new(Mutex::new(HashMap::new()));
+    let timeout_dur = snmp_timeout();
+    let port = snmp_port();
+    let community = Arc::new(snmp_community());
 
     let mut handles = Vec::new();
 
     for &ip in hosts {
         let semaphore = Arc::clone(&semaphore);
         let results = Arc::clone(&results);
+        let community = Arc::clone(&community);
 
         let handle = tokio::spawn(async move {
             let _permit = match semaphore.acquire().await {
@@ -155,7 +164,7 @@ pub async fn snmp_enrich(hosts: &[Ipv4Addr]) -> Result<HashMap<Ipv4Addr, SnmpDat
                 }
             };
 
-            if let Some(data) = query_host_snmp(ip).await {
+            if let Some(data) = query_host_snmp(ip, port, timeout_dur, &community).await {
                 let mut map = results.lock().await;
                 map.insert(ip, data);
             }

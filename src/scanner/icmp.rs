@@ -10,7 +10,7 @@ use std::time::Instant;
 use surge_ping::{Client, Config, IcmpPacket, PingIdentifier, PingSequence};
 use tokio::sync::{Mutex, Semaphore};
 
-use crate::config::{MAX_CONCURRENT_PINGS, PING_RETRIES, PING_TIMEOUT};
+use crate::config::{max_concurrent_pings, ping_retries, ping_timeout};
 
 /// Logs a message to stderr
 macro_rules! log_stderr {
@@ -58,15 +58,20 @@ pub fn guess_os_from_ttl(ttl: u8) -> String {
 }
 
 /// Pings a single IP address with retries, returns duration and TTL
-async fn ping_host_with_retries(client: &Client, ip: Ipv4Addr) -> Option<IcmpResult> {
+async fn ping_host_with_retries(
+    client: &Client,
+    ip: Ipv4Addr,
+    retries: u8,
+    timeout: Duration,
+) -> Option<IcmpResult> {
     let payload = [0u8; 56];
 
-    for attempt in 0..PING_RETRIES {
+    for attempt in 0..retries {
         let start = Instant::now();
         match client
             .pinger(IpAddr::V4(ip), PingIdentifier(rand_id()))
             .await
-            .timeout(PING_TIMEOUT)
+            .timeout(timeout)
             .ping(PingSequence(attempt as u16), &payload)
             .await
         {
@@ -111,7 +116,10 @@ pub async fn icmp_scan(
         }
     };
 
-    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_PINGS));
+    let concurrency = max_concurrent_pings();
+    let cfg_timeout = ping_timeout();
+    let cfg_retries = ping_retries();
+    let semaphore = Arc::new(Semaphore::new(concurrency));
     let results = Arc::new(Mutex::new(HashMap::new()));
 
     let mut handles = Vec::new();
@@ -120,7 +128,6 @@ pub async fn icmp_scan(
         let client = Arc::clone(&client);
         let semaphore = Arc::clone(&semaphore);
         let results = Arc::clone(&results);
-
         let handle = tokio::spawn(async move {
             let _permit = match semaphore.acquire().await {
                 Ok(permit) => permit,
@@ -130,7 +137,9 @@ pub async fn icmp_scan(
                 }
             };
 
-            if let Some(icmp_result) = ping_host_with_retries(&client, ip).await {
+            if let Some(icmp_result) =
+                ping_host_with_retries(&client, ip, cfg_retries, cfg_timeout).await
+            {
                 let mut res = results.lock().await;
                 res.insert(ip, icmp_result);
             }

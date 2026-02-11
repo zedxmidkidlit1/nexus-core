@@ -1,6 +1,6 @@
 # 🌐 NEXUS Core Engine
 
-**`nexus-core` v0.4.0-dev** — Standalone Rust CLI for network discovery, security analysis, and health monitoring.
+**`nexus-core` v0.5.0-dev** — Standalone Rust CLI for network discovery, security analysis, and health monitoring.
 
 This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../STMAHM-main/) for independent development and upgrade work. The full Tauri + React UI lives in the original repository.
 
@@ -151,6 +151,26 @@ cargo run --bin test_insights
 # Lint
 cargo clippy --all-targets
 ```
+
+## Runtime Tuning (v0.5)
+
+Core scanner behavior can now be tuned at runtime via environment variables:
+
+- `NEXUS_MAX_CONCURRENT_PINGS`
+- `NEXUS_MAX_SCAN_HOSTS`
+- `NEXUS_PING_TIMEOUT_MS`
+- `NEXUS_PING_RETRIES`
+- `NEXUS_ARP_MAX_WAIT_MS`
+- `NEXUS_ARP_ROUNDS`
+- `NEXUS_TCP_PROBE_TIMEOUT_MS`
+- `NEXUS_TCP_PROBE_PORTS` (comma-separated, e.g. `22,80,443,3389`)
+- `NEXUS_SNMP_ENABLED`
+- `NEXUS_SNMP_COMMUNITY`
+- `NEXUS_SNMP_TIMEOUT_MS`
+- `NEXUS_SNMP_PORT`
+- `NEXUS_DEFAULT_MONITOR_INTERVAL`
+- `NEXUS_MIN_MONITOR_INTERVAL`
+- `NEXUS_MAX_MONITOR_INTERVAL`
 
 ---
 

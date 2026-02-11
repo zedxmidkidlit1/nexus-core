@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use super::types::{Alert, AlertSeverity, AlertType, HIGH_RISK_THRESHOLD, SUSPICIOUS_PORTS};
 use crate::HostInfo;
-use crate::config::CAME_ONLINE_STALE_MINUTES;
+use crate::config::came_online_stale_minutes;
 use crate::database::DeviceRecord;
 
 fn append_security_alerts(current_hosts: &[HostInfo], alerts: &mut Vec<Alert>) {
@@ -61,6 +61,7 @@ pub fn detect_alerts_without_baseline(current_hosts: &[HostInfo]) -> Vec<Alert> 
 pub fn detect_alerts(known_devices: &[DeviceRecord], current_hosts: &[HostInfo]) -> Vec<Alert> {
     let mut alerts = Vec::new();
     let now = Utc::now();
+    let stale_threshold_minutes = came_online_stale_minutes();
 
     // Build lookup maps
     let known_macs: HashMap<&str, &DeviceRecord> =
@@ -73,7 +74,7 @@ pub fn detect_alerts(known_devices: &[DeviceRecord], current_hosts: &[HostInfo])
     for host in current_hosts {
         if let Some(known) = known_macs.get(host.mac.as_str()) {
             let stale_minutes = now.signed_duration_since(known.last_seen).num_minutes();
-            if stale_minutes >= CAME_ONLINE_STALE_MINUTES {
+            if stale_minutes >= stale_threshold_minutes {
                 let hostname_str = host.hostname.as_deref().unwrap_or("Unknown");
                 alerts.push(
                     Alert::new(

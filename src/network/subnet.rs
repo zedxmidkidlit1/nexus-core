@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use ipnetwork::Ipv4Network;
 use std::net::Ipv4Addr;
 
-use crate::config::MAX_SCAN_HOSTS;
+use crate::config::max_scan_hosts;
 use crate::models::InterfaceInfo;
 
 /// Prefix lengths below this threshold are treated as large subnets.
@@ -42,7 +42,7 @@ pub fn is_local_subnet(target_ip: Ipv4Addr, local_interface: &InterfaceInfo) -> 
 }
 
 /// Calculates the subnet range and generates the list of target IPs
-/// Limits to MAX_SCAN_HOSTS to prevent scanning huge subnets
+/// Applies runtime host caps to prevent scanning huge subnets.
 pub fn calculate_subnet_ips(interface: &InterfaceInfo) -> Result<(Ipv4Network, Vec<Ipv4Addr>)> {
     let network = Ipv4Network::new(interface.ip, interface.prefix_len)
         .context("Failed to create network from interface IP and prefix")?;
@@ -61,7 +61,7 @@ pub fn calculate_subnet_ips(interface: &InterfaceInfo) -> Result<(Ipv4Network, V
     let host_cap = if interface.prefix_len < LARGE_SUBNET_PREFIX_THRESHOLD {
         LARGE_SUBNET_MAX_HOSTS
     } else {
-        MAX_SCAN_HOSTS
+        max_scan_hosts()
     };
 
     let ips = if all_ips.len() > host_cap {
