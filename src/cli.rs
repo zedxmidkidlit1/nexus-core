@@ -24,13 +24,22 @@ pub fn version_text() -> String {
     format!("nexus-core {}", env!("CARGO_PKG_VERSION"))
 }
 
+pub fn banner_text() -> &'static str {
+    r#" _   _ _______  __ _   _ ____    ____ _     ___
+| \ | | ____\ \/ /| | | / ___|  / ___| |   |_ _|
+|  \| |  _|  \  / | | | \___ \ | |   | |    | |
+| |\  | |___ /  \ | |_| |___) || |___| |___ | |
+|_| \_|_____/_/\_\ \___/|____/  \____|_____|___|"#
+}
+
 pub fn usage_text() -> String {
     format!(
-        "{version}
+        "{banner}
+{version}
 NEXUS Core Engine — Network Discovery CLI
 
 Usage:
-  nexus-core [scan] [--interface <NAME>]
+  nexus-core scan [--interface <NAME>]
   nexus-core load-test [--interface <NAME>] [--iterations <N>] [--concurrency <N>]
   nexus-core ai-check
   nexus-core ai-insights
@@ -43,7 +52,12 @@ Options:
       --iterations <N>    Load-test: number of scans to run (default: {default_iterations})
       --concurrency <N>   Load-test: concurrent scans per batch (default: {default_concurrency})
   -h, --help              Show this help text
-  -V, --version           Show version",
+  -V, --version           Show version
+
+Notes:
+  - Running with no arguments shows this help screen.
+  - Use explicit commands for actions, e.g. `nexus-core scan`.",
+        banner = banner_text(),
         version = version_text(),
         default_iterations = DEFAULT_LOAD_TEST_ITERATIONS,
         default_concurrency = DEFAULT_LOAD_TEST_CONCURRENCY
@@ -156,7 +170,18 @@ where
         }
     }
 
-    match command.as_deref().unwrap_or("scan") {
+    let selected = command.as_deref();
+    if selected.is_none() {
+        if interface.is_none() && iterations.is_none() && concurrency.is_none() {
+            return Ok(CliCommand::Help);
+        }
+        return Err(anyhow::anyhow!(
+            "Missing command. Use one of: scan, load-test, ai-check, ai-insights, interfaces.\n\n{}",
+            usage_text()
+        ));
+    }
+
+    match selected.unwrap_or_default() {
         "scan" => {
             if iterations.is_some() || concurrency.is_some() {
                 return Err(anyhow::anyhow!(
@@ -221,10 +246,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_default_scan_command() {
+    fn parse_default_no_args_shows_help() {
         let args = ["nexus-core"];
         let parsed = parse_cli_args(args).expect("default args should parse");
-        assert_eq!(parsed, CliCommand::Scan { interface: None });
+        assert_eq!(parsed, CliCommand::Help);
     }
 
     #[test]
@@ -311,5 +336,13 @@ mod tests {
         let err = parse_cli_args(args).expect_err("unknown flag should fail");
         let message = err.to_string();
         assert!(message.contains("Unknown argument"));
+    }
+
+    #[test]
+    fn parse_no_command_with_scan_flags_errors() {
+        let args = ["nexus-core", "--interface", "Ethernet"];
+        let err = parse_cli_args(args).expect_err("flags without command should fail");
+        let message = err.to_string();
+        assert!(message.contains("Missing command"));
     }
 }

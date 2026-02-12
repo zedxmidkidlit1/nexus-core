@@ -29,6 +29,10 @@ New-Item -Path $distDir -ItemType Directory -Force | Out-Null
 
 Write-Host "Copying binary and docs to dist..."
 Copy-Item -Path $releaseExe -Destination (Join-Path $distDir "nexus-core.exe") -Force
+$windowsRunner = Join-Path $repoRoot "scripts\run-nexus.cmd"
+if (Test-Path $windowsRunner) {
+    Copy-Item -Path $windowsRunner -Destination (Join-Path $distDir "run-nexus.cmd") -Force
+}
 
 $docsToCopy = @(
     "README.md",
