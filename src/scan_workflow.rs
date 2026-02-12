@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
-use nexus_core::{
+use crate::{
     HostInfo, InterfaceInfo, NeighborInfo, ScanResult, active_arp_scan, calculate_risk_score,
     calculate_subnet_ips, dns_scan, guess_os_from_ttl, icmp_scan, infer_device_type,
     lookup_vendor_info, snmp_enabled, snmp_enrich, tcp_probe_scan,
@@ -90,16 +90,16 @@ pub(crate) async fn run_load_test(
 }
 
 pub(crate) fn persist_scan_result(result: &ScanResult) -> Result<()> {
-    let db = nexus_core::database::Database::new(nexus_core::database::Database::default_path())
+    let db = crate::database::Database::new(crate::database::Database::default_path())
         .context("Failed to open local database for scan persistence")?;
     let db_path = db.path().clone();
     let conn = db.connection();
     let conn = conn
         .lock()
         .map_err(|_| anyhow::anyhow!("Database connection lock poisoned"))?;
-    let scan_id = nexus_core::database::queries::insert_scan(&conn, result)
+    let scan_id = crate::database::queries::insert_scan(&conn, result)
         .context("Failed to persist scan result")?;
-    nexus_core::log_stderr!(
+    crate::log_stderr!(
         "Persisted scan {} to {}",
         scan_id,
         db_path.to_string_lossy()
@@ -111,8 +111,8 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
     let start_time = Instant::now();
     let (subnet, ips) = calculate_subnet_ips(interface)?;
 
-    nexus_core::log_stderr!("Starting Active ARP + ICMP scan on subnet {}...", subnet);
-    nexus_core::log_stderr!("================================================");
+    crate::log_stderr!("Starting Active ARP + ICMP scan on subnet {}...", subnet);
+    crate::log_stderr!("================================================");
 
     // Phase 1: Active ARP Scan
     let arp_scan_handle = tokio::task::spawn_blocking({
@@ -127,7 +127,7 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
         {
             Ok(joined) => joined.context("ARP scan task failed")??,
             Err(_) => {
-                nexus_core::log_error!(
+                crate::log_error!(
                     "ARP phase exceeded {}s timeout; continuing with empty ARP host set",
                     ARP_PHASE_TIMEOUT_SECS
                 );
@@ -157,7 +157,7 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
         match snmp_enrich(&host_ips).await {
             Ok(data) => data,
             Err(e) => {
-                nexus_core::log_error!(
+                crate::log_error!(
                     "SNMP enrichment failed; continuing without SNMP data: {}",
                     e
                 );
@@ -273,8 +273,8 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
     let total_hosts = active_hosts.len();
     let scan_duration = start_time.elapsed();
 
-    nexus_core::log_stderr!("================================================");
-    nexus_core::log_stderr!(
+    crate::log_stderr!("================================================");
+    crate::log_stderr!(
         "Scan complete: {} hosts found ({} ARP, {} ICMP responsive) in {:.2}s",
         total_hosts,
         arp_count,

@@ -4,7 +4,7 @@ const DEFAULT_LOAD_TEST_ITERATIONS: u32 = 5;
 const DEFAULT_LOAD_TEST_CONCURRENCY: usize = 1;
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum CliCommand {
+pub enum CliCommand {
     Scan {
         interface: Option<String>,
     },
@@ -20,11 +20,11 @@ pub(crate) enum CliCommand {
     Version,
 }
 
-pub(crate) fn version_text() -> String {
+pub fn version_text() -> String {
     format!("nexus-core {}", env!("CARGO_PKG_VERSION"))
 }
 
-pub(crate) fn usage_text() -> String {
+pub fn usage_text() -> String {
     format!(
         "{version}
 NEXUS Core Engine — Network Discovery CLI
@@ -72,7 +72,7 @@ fn parse_usize_arg(flag: &str, raw: &str) -> Result<usize> {
     })
 }
 
-pub(crate) fn parse_cli_args<I, S>(args: I) -> Result<CliCommand>
+pub fn parse_cli_args<I, S>(args: I) -> Result<CliCommand>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,

@@ -12,6 +12,9 @@
 
 pub mod ai;
 pub mod alerts;
+pub mod app;
+pub mod cli;
+mod command_handlers;
 pub mod config;
 pub mod database;
 pub mod exports;
@@ -20,6 +23,7 @@ pub mod logging;
 pub mod models;
 pub mod monitor;
 pub mod network;
+mod scan_workflow;
 pub mod scanner;
 
 pub use ai::{
@@ -27,6 +31,7 @@ pub use ai::{
     generate_hybrid_insights, run_ai_check,
 };
 pub use alerts::{Alert, detect_alerts, detect_alerts_without_baseline, has_high_priority_alerts};
+pub use app::{execute_command, run};
 pub use config::*;
 pub use database::{
     AlertRecord, AlertSeverity, AlertType, Database, DeviceRecord, NetworkStats, ScanRecord,

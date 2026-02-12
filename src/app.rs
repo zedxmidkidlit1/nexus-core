@@ -6,7 +6,7 @@ use crate::command_handlers::{
 };
 
 /// Run the app by parsing CLI-style args and dispatching the command.
-pub(crate) async fn run<I, S>(args: I) -> Result<()>
+pub async fn run<I, S>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -16,7 +16,7 @@ where
 }
 
 /// Execute a pre-parsed command. This is reusable for non-CLI entrypoints.
-pub(crate) async fn execute_command(command: CliCommand) -> Result<()> {
+pub async fn execute_command(command: CliCommand) -> Result<()> {
     match command {
         CliCommand::Help => {
             println!("{}", usage_text());
@@ -40,7 +40,7 @@ pub(crate) async fn execute_command(command: CliCommand) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use nexus_core::{HostInfo, ScanResult};
+    use crate::{HostInfo, ScanResult};
 
     #[test]
     fn test_scan_result_serialization() {

@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 
 use crate::scan_workflow::{persist_scan_result, run_load_test, scan_network};
 
-use nexus_core::{
+use crate::{
     AiSettings, export_scan_result_with_ai_json, find_interface_by_name, find_valid_interface,
     generate_hybrid_insights, list_valid_interfaces, run_ai_check,
 };
@@ -29,7 +29,7 @@ pub(crate) async fn handle_ai_check() -> Result<()> {
 }
 
 pub(crate) async fn handle_ai_insights() -> Result<()> {
-    let db = nexus_core::database::Database::new(nexus_core::database::Database::default_path())
+    let db = crate::database::Database::new(crate::database::Database::default_path())
         .context("Failed to open database. Run a scan first to create baseline data")?;
 
     let hosts = {
@@ -37,7 +37,7 @@ pub(crate) async fn handle_ai_insights() -> Result<()> {
         let conn = conn
             .lock()
             .map_err(|_| anyhow::anyhow!("Database connection lock poisoned"))?;
-        nexus_core::database::queries::get_latest_scan_hosts(&conn)
+        crate::database::queries::get_latest_scan_hosts(&conn)
             .context("Failed to load hosts from latest scan history")?
     };
 
@@ -56,18 +56,18 @@ pub(crate) async fn handle_ai_insights() -> Result<()> {
 }
 
 pub(crate) async fn handle_scan(interface: Option<String>) -> Result<()> {
-    nexus_core::log_stderr!(
+    crate::log_stderr!(
         "NEXUS Core Engine — Network Discovery v{}",
         env!("CARGO_PKG_VERSION")
     );
-    nexus_core::log_stderr!("Active ARP + ICMP + TCP Scanning Mode");
-    nexus_core::log_stderr!("================================================");
+    crate::log_stderr!("Active ARP + ICMP + TCP Scanning Mode");
+    crate::log_stderr!("================================================");
 
     let selected_interface = select_interface(interface)?;
     let result = scan_network(&selected_interface).await?;
 
     if let Err(e) = persist_scan_result(&result) {
-        nexus_core::log_error!(
+        crate::log_error!(
             "Scan persistence failed (continuing with JSON output): {}",
             e
         );
@@ -103,7 +103,7 @@ pub(crate) async fn handle_load_test(
     iterations: u32,
     concurrency: usize,
 ) -> Result<()> {
-    nexus_core::log_stderr!(
+    crate::log_stderr!(
         "NEXUS Core Engine — Load Test v{} (iterations={}, concurrency={})",
         env!("CARGO_PKG_VERSION"),
         iterations,
@@ -119,14 +119,14 @@ pub(crate) async fn handle_load_test(
     Ok(())
 }
 
-fn select_interface(interface: Option<String>) -> Result<nexus_core::InterfaceInfo> {
+fn select_interface(interface: Option<String>) -> Result<crate::InterfaceInfo> {
     match interface {
         Some(name) => {
-            nexus_core::log_stderr!("Using requested interface: {}", name);
+            crate::log_stderr!("Using requested interface: {}", name);
             find_interface_by_name(&name)
         }
         None => {
-            nexus_core::log_stderr!("Detecting network interfaces...");
+            crate::log_stderr!("Detecting network interfaces...");
             find_valid_interface()
         }
     }
