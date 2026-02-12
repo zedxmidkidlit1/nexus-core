@@ -46,6 +46,29 @@ pub struct HybridInsightsResult {
     pub ai_error: Option<String>,
 }
 
+/// Provider connectivity/model check result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiProviderCheck {
+    pub provider: String,
+    pub configured: bool,
+    pub reachable: bool,
+    pub model: Option<String>,
+    pub model_available: Option<bool>,
+    pub latency_ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+/// End-to-end AI readiness report for current runtime settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiCheckReport {
+    pub ai_enabled: bool,
+    pub mode: AiMode,
+    pub timeout_ms: u64,
+    pub local: Option<AiProviderCheck>,
+    pub cloud: Option<AiProviderCheck>,
+    pub overall_ok: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct AiInputDigest {
     pub total_hosts: usize,

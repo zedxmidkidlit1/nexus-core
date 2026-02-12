@@ -15,7 +15,7 @@ use nexus_core::{
     HostInfo, InterfaceInfo, NeighborInfo, ScanResult, active_arp_scan, calculate_risk_score,
     calculate_subnet_ips, dns_scan, find_interface_by_name, find_valid_interface,
     guess_os_from_ttl, icmp_scan, infer_device_type, list_valid_interfaces, lookup_vendor_info,
-    snmp_enabled, snmp_enrich, tcp_probe_scan,
+    run_ai_check, snmp_enabled, snmp_enrich, tcp_probe_scan,
 };
 
 /// Logs a message to stderr
@@ -46,6 +46,7 @@ enum CliCommand {
         iterations: u32,
         concurrency: usize,
     },
+    AiCheck,
     Interfaces,
     Help,
     Version,
@@ -63,6 +64,7 @@ NEXUS Core Engine — Network Discovery CLI
 Usage:
   nexus-core [scan] [--interface <NAME>]
   nexus-core load-test [--interface <NAME>] [--iterations <N>] [--concurrency <N>]
+  nexus-core ai-check
   nexus-core interfaces
   nexus-core --help
   nexus-core --version
@@ -119,7 +121,7 @@ where
         match arg {
             "-h" | "--help" => return Ok(CliCommand::Help),
             "-V" | "--version" => return Ok(CliCommand::Version),
-            "scan" | "interfaces" | "load-test" => {
+            "scan" | "interfaces" | "load-test" | "ai-check" => {
                 if command.as_deref().is_some_and(|existing| existing != arg) {
                     return Err(anyhow::anyhow!(
                         "Multiple commands provided. Use only one command.\n\n{}",
@@ -208,6 +210,15 @@ where
                 ));
             }
             Ok(CliCommand::Interfaces)
+        }
+        "ai-check" => {
+            if interface.is_some() || iterations.is_some() || concurrency.is_some() {
+                return Err(anyhow::anyhow!(
+                    "--interface/--iterations/--concurrency are not valid with ai-check.\n\n{}",
+                    usage_text()
+                ));
+            }
+            Ok(CliCommand::AiCheck)
         }
         _ => unreachable!(),
     }
@@ -528,6 +539,15 @@ where
             }
             Ok(())
         }
+        CliCommand::AiCheck => {
+            let report = run_ai_check().await;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report)
+                    .context("Failed to serialize ai-check report")?
+            );
+            Ok(())
+        }
         CliCommand::Scan { interface } => {
             log_stderr!(
                 "NEXUS Core Engine — Network Discovery v{}",
@@ -632,6 +652,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_ai_check_command() {
+        let args = ["nexus-core", "ai-check"];
+        let parsed = parse_cli_args(args).expect("ai-check command should parse");
+        assert_eq!(parsed, CliCommand::AiCheck);
+    }
+
+    #[test]
     fn parse_load_test_command_with_options() {
         let args = [
             "nexus-core",
@@ -660,6 +687,13 @@ mod tests {
         let err = parse_cli_args(args).expect_err("scan should reject load-test-only options");
         let msg = err.to_string();
         assert!(msg.contains("--iterations/--concurrency are only valid with load-test"));
+    }
+
+    #[test]
+    fn parse_ai_check_rejects_scan_flags() {
+        let args = ["nexus-core", "ai-check", "--interface", "Ethernet"];
+        let err = parse_cli_args(args).expect_err("ai-check should reject scan flags");
+        assert!(err.to_string().contains("not valid with ai-check"));
     }
 
     #[test]

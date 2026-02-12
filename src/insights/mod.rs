@@ -9,7 +9,8 @@ pub mod security;
 pub mod vulnerability_filter;
 
 pub use crate::ai::{
-    AiInsightOverlay, AiMode, AiSettings, HybridInsightsResult, generate_hybrid_insights,
+    AiCheckReport, AiInsightOverlay, AiMode, AiProviderCheck, AiSettings, HybridInsightsResult,
+    generate_hybrid_insights, run_ai_check,
 };
 pub use distribution::*;
 pub use health::*;

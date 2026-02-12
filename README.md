@@ -147,6 +147,9 @@ cargo run -- scan --interface "<INTERFACE_NAME>"
 # Run built-in load test mode (batch scan runner)
 cargo run -- load-test --interface "<INTERFACE_NAME>" --iterations 10 --concurrency 2
 
+# Validate AI provider connectivity + model availability
+cargo run -- ai-check
+
 # Enable optional PDF export backend
 cargo build --features pdf-export
 

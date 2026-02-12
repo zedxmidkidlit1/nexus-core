@@ -23,7 +23,8 @@ pub mod network;
 pub mod scanner;
 
 pub use ai::{
-    AiInsightOverlay, AiMode, AiSettings, HybridInsightsResult, generate_hybrid_insights,
+    AiCheckReport, AiInsightOverlay, AiMode, AiProviderCheck, AiSettings, HybridInsightsResult,
+    generate_hybrid_insights, run_ai_check,
 };
 pub use alerts::{Alert, detect_alerts, detect_alerts_without_baseline, has_high_priority_alerts};
 pub use config::*;

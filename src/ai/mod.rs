@@ -9,5 +9,5 @@ mod router;
 pub mod types;
 
 pub use config::AiSettings;
-pub use router::generate_hybrid_insights;
-pub use types::{AiInsightOverlay, AiMode, HybridInsightsResult};
+pub use router::{generate_hybrid_insights, run_ai_check};
+pub use types::{AiCheckReport, AiInsightOverlay, AiMode, AiProviderCheck, HybridInsightsResult};
