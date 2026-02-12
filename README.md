@@ -1,6 +1,6 @@
 # 🌐 NEXUS Core Engine
 
-**`nexus-core` v0.5.0-dev** — Standalone Rust CLI for network discovery, security analysis, and health monitoring.
+**`nexus-core` v0.1.0** — Standalone Rust CLI for network discovery, security analysis, and health monitoring.
 
 This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../STMAHM-main/) for independent development and upgrade work. The full Tauri + React UI lives in the original repository.
 
@@ -216,7 +216,7 @@ println!("Typed result: {:?}", result);
 
 For legacy CLI-compatible behavior (text/JSON lines), use `execute_command_with_context(...)` or `run_with_context(...)`.
 
-## Release Hardening & Benchmarking (v0.5)
+## Release Hardening & Benchmarking (v0.1)
 
 - `Cargo.toml` includes hardened release settings under `[profile.release]`:
   - `opt-level = 3`, `lto = "thin"`, `codegen-units = 1`
@@ -233,7 +233,7 @@ pwsh ./scripts/benchmark.ps1 -Mode load-test -Iterations 20 -Concurrency 4
 
 `load-test` output is JSON (`successful_scans`, `failed_scans`, duration and host-count aggregates), so it can be fed into CI/perf dashboards.
 
-## Runtime Tuning (v0.5)
+## Runtime Tuning (v0.1)
 
 Core scanner behavior can now be tuned at runtime via environment variables:
 
@@ -347,7 +347,7 @@ NEXUS-core/
 
 ## 🚀 Roadmap Status (As of 2026-02-11)
 
-### Completed in v0.5.0-dev
+### Completed in v0.1.0
 
 - [x] **Release hardening profile** — Tuned `[profile.release]` (`opt-level=3`, thin LTO, single codegen unit, strip symbols, panic abort)
 - [x] **Benchmark tooling + load-test mode** — Added `scripts/benchmark.ps1` and CLI `load-test` command with JSON summary

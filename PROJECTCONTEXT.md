@@ -3,7 +3,7 @@
 Last updated: 2026-02-12  
 Repository: `NEXUS-core`  
 Current commit snapshot: `739eb59`  
-Crate: `nexus-core` `0.5.0-dev`  
+Crate: `nexus-core` `0.1.0`  
 Rust: edition `2024`, `rust-version = 1.93`
 
 ## 1) What This Project Is
