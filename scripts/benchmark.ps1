@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("scan", "load-test")]
+    [ValidateSet("scan", "load-test", "smoke")]
     [string]$Mode = "scan",
     [string]$Interface = "",
     [int]$Iterations = 5,
@@ -22,6 +22,23 @@ cargo build --release | Out-Host
 $exe = Join-Path (Get-Location) "target\release\nexus-core.exe"
 if (-not (Test-Path $exe)) {
     throw "Release binary not found at $exe"
+}
+
+if ($Mode -eq "smoke") {
+    Write-Host "Running benchmark smoke checks (no network scan)..."
+    $versionOutput = & $exe --version
+    $helpOutput = & $exe --help
+    $aiCheckOutput = & $exe ai-check 2>$null
+    $aiCheckJson = $aiCheckOutput | ConvertFrom-Json
+    $summary = [pscustomobject]@{
+        mode                 = "smoke"
+        version              = $versionOutput
+        usage_contains_scan  = ($helpOutput -join "`n") -match "nexus-core \[scan\]"
+        ai_check_mode        = [string]$aiCheckJson.mode
+        ai_check_overall_ok  = [bool]$aiCheckJson.overall_ok
+    }
+    $summary | ConvertTo-Json -Depth 6
+    exit 0
 }
 
 if ([string]::IsNullOrWhiteSpace($Interface)) {
