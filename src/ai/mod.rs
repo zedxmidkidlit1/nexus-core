@@ -10,4 +10,5 @@ pub mod types;
 
 pub use config::AiSettings;
 pub use router::{generate_hybrid_insights, run_ai_check};
+pub(crate) use router::{generate_hybrid_insights_with_settings, run_ai_check_with_settings};
 pub use types::{AiCheckReport, AiInsightOverlay, AiMode, AiProviderCheck, HybridInsightsResult};

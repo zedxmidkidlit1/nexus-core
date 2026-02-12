@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::net::Ipv4Addr;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::{
@@ -89,8 +90,8 @@ pub(crate) async fn run_load_test(
     })
 }
 
-pub(crate) fn persist_scan_result(result: &ScanResult) -> Result<()> {
-    let db = crate::database::Database::new(crate::database::Database::default_path())
+pub(crate) fn persist_scan_result(result: &ScanResult, db_path: &Path) -> Result<()> {
+    let db = crate::database::Database::new(db_path.to_path_buf())
         .context("Failed to open local database for scan persistence")?;
     let db_path = db.path().clone();
     let conn = db.connection();

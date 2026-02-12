@@ -31,7 +31,9 @@ pub use ai::{
     generate_hybrid_insights, run_ai_check,
 };
 pub use alerts::{Alert, detect_alerts, detect_alerts_without_baseline, has_high_priority_alerts};
-pub use app::{execute_command, run};
+pub use app::{
+    AppContext, OutputHook, execute_command, execute_command_with_context, run, run_with_context,
+};
 pub use config::*;
 pub use database::{
     AlertRecord, AlertSeverity, AlertType, Database, DeviceRecord, NetworkStats, ScanRecord,

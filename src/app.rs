@@ -1,9 +1,63 @@
 use anyhow::Result;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::cli::{CliCommand, parse_cli_args, usage_text, version_text};
 use crate::command_handlers::{
     handle_ai_check, handle_ai_insights, handle_interfaces, handle_load_test, handle_scan,
 };
+
+pub type OutputHook = Arc<dyn Fn(&str) + Send + Sync>;
+
+#[derive(Clone)]
+pub struct AppContext {
+    db_path: PathBuf,
+    ai_settings: crate::AiSettings,
+    output_hook: OutputHook,
+}
+
+impl Default for AppContext {
+    fn default() -> Self {
+        Self::from_env()
+    }
+}
+
+impl AppContext {
+    pub fn from_env() -> Self {
+        Self {
+            db_path: crate::database::Database::default_path(),
+            ai_settings: crate::AiSettings::from_env(),
+            output_hook: Arc::new(|line| println!("{}", line)),
+        }
+    }
+
+    pub fn with_db_path(mut self, db_path: PathBuf) -> Self {
+        self.db_path = db_path;
+        self
+    }
+
+    pub fn with_ai_settings(mut self, ai_settings: crate::AiSettings) -> Self {
+        self.ai_settings = ai_settings;
+        self
+    }
+
+    pub fn with_output_hook(mut self, output_hook: OutputHook) -> Self {
+        self.output_hook = output_hook;
+        self
+    }
+
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
+    }
+
+    pub fn ai_settings(&self) -> &crate::AiSettings {
+        &self.ai_settings
+    }
+
+    pub fn emit_line(&self, line: &str) {
+        (self.output_hook)(line);
+    }
+}
 
 /// Run the app by parsing CLI-style args and dispatching the command.
 pub async fn run<I, S>(args: I) -> Result<()>
@@ -11,30 +65,46 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
+    let context = AppContext::from_env();
+    run_with_context(args, &context).await
+}
+
+/// Run the app with an explicit context (db path, AI settings, and output hooks).
+pub async fn run_with_context<I, S>(args: I, context: &AppContext) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
     let command = parse_cli_args(args)?;
-    execute_command(command).await
+    execute_command_with_context(command, context).await
 }
 
 /// Execute a pre-parsed command. This is reusable for non-CLI entrypoints.
 pub async fn execute_command(command: CliCommand) -> Result<()> {
+    let context = AppContext::from_env();
+    execute_command_with_context(command, &context).await
+}
+
+/// Execute a pre-parsed command with an explicit execution context.
+pub async fn execute_command_with_context(command: CliCommand, context: &AppContext) -> Result<()> {
     match command {
         CliCommand::Help => {
-            println!("{}", usage_text());
+            context.emit_line(&usage_text());
             Ok(())
         }
         CliCommand::Version => {
-            println!("{}", version_text());
+            context.emit_line(&version_text());
             Ok(())
         }
-        CliCommand::Interfaces => handle_interfaces().await,
-        CliCommand::AiCheck => handle_ai_check().await,
-        CliCommand::AiInsights => handle_ai_insights().await,
-        CliCommand::Scan { interface } => handle_scan(interface).await,
+        CliCommand::Interfaces => handle_interfaces(context).await,
+        CliCommand::AiCheck => handle_ai_check(context).await,
+        CliCommand::AiInsights => handle_ai_insights(context).await,
+        CliCommand::Scan { interface } => handle_scan(interface, context).await,
         CliCommand::LoadTest {
             interface,
             iterations,
             concurrency,
-        } => handle_load_test(interface, iterations, concurrency).await,
+        } => handle_load_test(interface, iterations, concurrency, context).await,
     }
 }
 
