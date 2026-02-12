@@ -171,6 +171,7 @@ cargo clippy --all-targets
 ```
 
 When `NEXUS_AI_ENABLED=true`, `scan` JSON output includes an optional top-level `ai` block with provider/model metadata, overlay text, and fallback error details.
+CLI `scan` persists results to the local SQLite database by default, so `ai-insights` can analyze the latest stored scan session.
 
 ## AI Profiles (Local/Cloud/Hybrid)
 

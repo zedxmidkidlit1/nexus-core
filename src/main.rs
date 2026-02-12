@@ -314,6 +314,24 @@ async fn run_load_test(
     })
 }
 
+fn persist_scan_result(result: &ScanResult) -> Result<()> {
+    let db = nexus_core::database::Database::new(nexus_core::database::Database::default_path())
+        .context("Failed to open local database for scan persistence")?;
+    let db_path = db.path().clone();
+    let conn = db.connection();
+    let conn = conn
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Database connection lock poisoned"))?;
+    let scan_id = nexus_core::database::queries::insert_scan(&conn, result)
+        .context("Failed to persist scan result")?;
+    log_stderr!(
+        "Persisted scan {} to {}",
+        scan_id,
+        db_path.to_string_lossy()
+    );
+    Ok(())
+}
+
 /// Performs the complete network scan
 async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult> {
     let start_time = Instant::now();
@@ -608,6 +626,12 @@ where
             };
 
             let result = scan_network(&selected_interface).await?;
+            if let Err(e) = persist_scan_result(&result) {
+                log_error!(
+                    "Scan persistence failed (continuing with JSON output): {}",
+                    e
+                );
+            }
             let ai_settings = AiSettings::from_env();
             let ai_result = if ai_settings.enabled {
                 Some(generate_hybrid_insights(&result.active_hosts).await)
