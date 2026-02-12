@@ -169,6 +169,26 @@ cargo clippy --all-targets
 
 When `NEXUS_AI_ENABLED=true`, `scan` JSON output includes an optional top-level `ai` block with provider/model metadata, overlay text, and fallback error details.
 
+## AI Profiles (Local/Cloud/Hybrid)
+
+Use `.env.example` as a baseline template for runtime configuration.
+
+```powershell
+# Local only (Ollama)
+pwsh ./scripts/ai-check.ps1 -Mode local -OllamaModel "qwen3:8b"
+
+# Cloud only (Gemini)
+pwsh ./scripts/ai-check.ps1 -Mode cloud -GeminiApiKey "<YOUR_API_KEY>"
+
+# Hybrid auto fallback (local first, then cloud)
+pwsh ./scripts/ai-check.ps1 -Mode hybrid_auto -GeminiApiKey "<YOUR_API_KEY>"
+```
+
+Troubleshooting:
+- If `ai-check` reports `model_available=false` for Ollama, pull the model first: `ollama pull qwen3:8b`
+- If cloud mode fails with configuration error, set `NEXUS_AI_GEMINI_API_KEY`
+- Keep `NEXUS_AI_CLOUD_ALLOW_SENSITIVE=false` for default redaction safety
+
 ## Release Hardening & Benchmarking (v0.5)
 
 - `Cargo.toml` includes hardened release settings under `[profile.release]`:
@@ -225,6 +245,7 @@ Core scanner behavior can now be tuned at runtime via environment variables:
 ```text
 NEXUS-core/
 ├── Cargo.toml              # Package config (nexus-core)
+├── .env.example            # Runtime env template (AI + scan tuning)
 ├── build.rs                # Npcap SDK detection (Windows)
 ├── src/
 │   ├── main.rs             # CLI entry point (5-phase scan pipeline)
@@ -288,6 +309,7 @@ NEXUS-core/
 │       ├── test_alerts.rs  # Alert detection test binary
 │       └── test_insights.rs # Insights system test binary
 ├── scripts/
+│   ├── ai-check.ps1        # AI provider diagnostics helper
 │   └── benchmark.ps1       # Release benchmark/load-test runner
 └── .gitignore
 ```
