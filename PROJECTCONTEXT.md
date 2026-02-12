@@ -2,9 +2,10 @@
 
 Last updated: 2026-02-12  
 Repository: `NEXUS-core`  
-Current commit snapshot: `739eb59`  
+Current commit snapshot: `e6c6b6c`  
 Crate: `nexus-core` `0.1.0`  
 Rust: edition `2024`, `rust-version = 1.93`
+Release tags: `v0.1.0` -> `4b40568`, `v0.1.1` -> `9c59c40`
 
 ## 1) What This Project Is
 
@@ -22,7 +23,7 @@ Primary binary entrypoint is `src/main.rs`, but most operational logic is in lib
 ## 2) Current Runtime Surfaces
 
 ### CLI commands (from `src/cli.rs`)
-- `nexus-core [scan] [--interface <NAME>]`
+- `nexus-core scan [--interface <NAME>]`
 - `nexus-core load-test [--interface <NAME>] [--iterations <N>] [--concurrency <N>]`
 - `nexus-core ai-check`
 - `nexus-core ai-insights`
@@ -31,12 +32,17 @@ Primary binary entrypoint is `src/main.rs`, but most operational logic is in lib
 - `nexus-core --version`
 
 Defaults:
-- Default command: `scan`
+- Running with no arguments returns `Help` (usage + ASCII banner), not an automatic scan
 - Load test defaults: `iterations=5`, `concurrency=1`
 
 Validation:
 - `--iterations` and `--concurrency` allowed only for `load-test`
 - `--interface` allowed for `scan` and `load-test`
+- Flags without a command (for example only `--interface`) return a "Missing command" error
+
+Windows UX helper:
+- `scripts/run-nexus.cmd` runs `nexus-core.exe`
+- If launched with no args (double-click path), it shows help and pauses so output remains readable
 
 ### App layer API (from `src/app.rs`)
 
@@ -345,12 +351,35 @@ Release profile (from `Cargo.toml`):
 
 CI workflow:
 - `.github/workflows/ci-release-gates.yml`
-- runs on `push` (main/tags) and `pull_request`
-- gates:
-  - `cargo fmt --all -- --check`
-  - `cargo clippy --all-targets --all-features -- -D warnings`
-  - `cargo test --all-targets --all-features`
-  - benchmark smoke check via `scripts/benchmark.ps1 -Mode smoke -Iterations 1`
+- triggers: `push` on `main`, and `pull_request`
+- jobs:
+  - Linux quality gate (`ubuntu-24.04`):
+    - `cargo fmt --all -- --check`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features`
+    - release smoke checks (`--version`, `--help`, `ai-check`) on release binary
+  - Windows link/build check (`windows-2025`):
+    - installs Npcap SDK via `scripts/install-npcap-sdk.ps1`
+    - `cargo check --all-targets --all-features`
+    - `cargo test --all-targets --all-features --no-run`
+  - macOS build checks:
+    - `macos-15-intel` (`x86_64-apple-darwin`)
+    - `macos-15` (`aarch64-apple-darwin`)
+    - `macos-26` (`aarch64-apple-darwin`, marked experimental / continue-on-error)
+
+Release workflow:
+- `.github/workflows/release.yml`
+- triggers: tag push `v*` and `workflow_dispatch`
+- build matrix targets:
+  - `ubuntu-24.04` (`x86_64-unknown-linux-gnu`)
+  - `macos-15-intel` (`x86_64-apple-darwin`)
+  - `macos-15` (`aarch64-apple-darwin`)
+  - `macos-26` (`aarch64-apple-darwin`)
+  - `windows-2025` (`x86_64-pc-windows-msvc`, Npcap SDK install step)
+- artifacts:
+  - `.tar.gz` (Unix) / `.zip` (Windows)
+  - `.sha256` checksum per package
+- publish job creates GitHub release as `draft: true`
 
 Benchmark script:
 - `scripts/benchmark.ps1` supports:
@@ -358,13 +387,21 @@ Benchmark script:
   - `load-test`
   - `smoke` (non-network sanity)
 
+Packaging script:
+- `scripts/package.ps1`
+- builds/copies `nexus-core.exe` + docs into `dist/`
+- includes `dist/run-nexus.cmd` for Windows-friendly launch
+
 ## 14) Repository Structure (Current Core Map)
 
 Top-level:
 - `Cargo.toml`
+- `CHANGELOG.md`
 - `README.md`
+- `PROJECTCONTEXT.md`
 - `.env.example`
 - `build.rs`
+- `.github/workflows/`
 - `scripts/`
 - `src/`
 - `tests/`
@@ -396,6 +433,7 @@ Core source folders:
 ## 16) Useful Commands
 
 Core:
+- `cargo run --`
 - `cargo run -- --help`
 - `cargo run -- scan --interface "<NAME>"`
 - `cargo run -- load-test --interface "<NAME>" --iterations 10 --concurrency 2`
@@ -412,6 +450,10 @@ Benchmarking:
 - `pwsh ./scripts/benchmark.ps1 -Mode smoke -Iterations 1`
 - `pwsh ./scripts/benchmark.ps1 -Mode scan -Iterations 5`
 - `pwsh ./scripts/benchmark.ps1 -Mode load-test -Iterations 20 -Concurrency 4`
+
+Packaging (Windows):
+- `pwsh ./scripts/package.ps1`
+- `dist\\run-nexus.cmd`
 
 ---
 
