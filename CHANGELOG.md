@@ -22,6 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - TBD
 
+## [0.1.1] - 2026-02-12
+
+### Added
+- `NEXUS CLI` ASCII art banner in CLI help output.
+- Windows runner wrapper script: `scripts/run-nexus.cmd`.
+
+### Changed
+- Running `nexus-core` with no arguments now shows help instead of starting an automatic scan.
+- Help text now emphasizes explicit command usage (for example: `nexus-core scan`).
+- Packaging script now includes `run-nexus.cmd` in `dist/` for double-click-friendly usage on Windows.
+
+### Fixed
+- Improved Windows UX where double-click execution closed too quickly without letting users read output.
+
 ## [0.1.0] - 2026-02-12
 
 Initial public baseline release of `nexus-core`.
@@ -46,5 +60,6 @@ Initial public baseline release of `nexus-core`.
 ### Security
 - No specific security fix is announced in this initial baseline release.
 
-[Unreleased]: https://github.com/zedxmidkidlit1/nexus-core/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/zedxmidkidlit1/nexus-core/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/zedxmidkidlit1/nexus-core/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/zedxmidkidlit1/nexus-core/releases/tag/v0.1.0
