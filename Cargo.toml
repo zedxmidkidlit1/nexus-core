@@ -61,3 +61,6 @@ strip = "symbols"
 panic = "abort"
 debug = false
 incremental = false
+
+[dev-dependencies]
+httpmock = "0.7"
