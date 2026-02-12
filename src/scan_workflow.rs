@@ -353,3 +353,63 @@ fn ensure_not_cancelled(context: Option<&AppContext>, stage: &str) -> Result<()>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::scan_network;
+    use crate::app::{AppContext, AppEvent, EventHook};
+    use crate::models::InterfaceInfo;
+    use pnet::util::MacAddr;
+    use std::net::Ipv4Addr;
+    use std::sync::{Arc, Mutex};
+
+    fn test_interface() -> InterfaceInfo {
+        let pnet_interface = pnet::datalink::interfaces()
+            .into_iter()
+            .next()
+            .expect("at least one local interface should exist for tests");
+        InterfaceInfo {
+            name: "test-iface".to_string(),
+            ip: Ipv4Addr::new(192, 168, 1, 10),
+            mac: MacAddr::new(0x02, 0x00, 0x00, 0x00, 0x00, 0x01),
+            prefix_len: 24,
+            pnet_interface,
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_network_can_be_cancelled_mid_execution() {
+        let events: Arc<Mutex<Vec<AppEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+
+        let base_context = AppContext::from_env();
+        let cancel_context = base_context.clone();
+        let event_hook: EventHook = Arc::new(move |event| {
+            if matches!(event, AppEvent::ScanPhase { phase, .. } if phase == "init") {
+                cancel_context.cancel();
+            }
+            sink.lock()
+                .expect("event lock should not be poisoned")
+                .push(event.clone());
+        });
+        let context = base_context.with_event_hook(event_hook);
+        let interface = test_interface();
+
+        let err = scan_network(&interface, Some(&context))
+            .await
+            .expect_err("scan should stop after cancellation is requested");
+        assert!(err.to_string().contains("Operation cancelled (scan-arp)"));
+
+        let captured = events.lock().expect("event lock should not be poisoned");
+        assert!(
+            captured
+                .iter()
+                .any(|event| matches!(event, AppEvent::ScanPhase { phase, .. } if phase == "init"))
+        );
+        assert!(
+            captured
+                .iter()
+                .any(|event| matches!(event, AppEvent::Cancelled { stage } if stage == "scan-arp"))
+        );
+    }
+}
