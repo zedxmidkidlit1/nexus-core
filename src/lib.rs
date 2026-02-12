@@ -34,6 +34,7 @@ pub use alerts::{Alert, detect_alerts, detect_alerts_without_baseline, has_high_
 pub use app::{
     AppContext, OutputHook, execute_command, execute_command_with_context, run, run_with_context,
 };
+pub use cli::{CliCommand, parse_cli_args, usage_text, version_text};
 pub use config::*;
 pub use database::{
     AlertRecord, AlertSeverity, AlertType, Database, DeviceRecord, NetworkStats, ScanRecord,
