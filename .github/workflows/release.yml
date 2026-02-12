@@ -19,18 +19,27 @@ jobs:
         include:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            platform_id: linux-x64
             package_ext: tar.gz
             needs_npcap: false
           - os: macos-15-intel
             target: x86_64-apple-darwin
+            platform_id: macos15-intel
             package_ext: tar.gz
             needs_npcap: false
           - os: macos-15
             target: aarch64-apple-darwin
+            platform_id: macos15-arm64
+            package_ext: tar.gz
+            needs_npcap: false
+          - os: macos-26
+            target: aarch64-apple-darwin
+            platform_id: macos26-arm64
             package_ext: tar.gz
             needs_npcap: false
           - os: windows-2025
             target: x86_64-pc-windows-msvc
+            platform_id: windows-x64
             package_ext: zip
             needs_npcap: true
 
@@ -57,9 +66,10 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME}"
-          TARGET="${{ matrix.target }}"
-          PKG_BASE="nexus-core-${VERSION}-${TARGET}"
+          PLATFORM_ID="${{ matrix.platform_id }}"
+          PKG_BASE="nexus-core-${VERSION}-${PLATFORM_ID}"
           STAGE_DIR="dist/${PKG_BASE}"
+          TARGET="${{ matrix.target }}"
           BIN_PATH="target/${TARGET}/release/nexus-core"
 
           mkdir -p "${STAGE_DIR}"
@@ -81,8 +91,9 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $version = "${env:GITHUB_REF_NAME}"
+          $platformId = "${{ matrix.platform_id }}"
           $target = "${{ matrix.target }}"
-          $pkgBase = "nexus-core-$version-$target"
+          $pkgBase = "nexus-core-$version-$platformId"
           $stageDir = Join-Path "dist" $pkgBase
           $binPath = Join-Path "target\$target\release" "nexus-core.exe"
           $archivePath = Join-Path "dist" "$pkgBase.zip"
@@ -104,10 +115,10 @@ jobs:
       - name: Upload release artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: release-${{ matrix.target }}
+          name: release-${{ matrix.platform_id }}
           path: |
-            dist/nexus-core-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.package_ext }}
-            dist/nexus-core-${{ github.ref_name }}-${{ matrix.target }}.sha256
+            dist/nexus-core-${{ github.ref_name }}-${{ matrix.platform_id }}.${{ matrix.package_ext }}
+            dist/nexus-core-${{ github.ref_name }}-${{ matrix.platform_id }}.sha256
 
   publish:
     name: Publish GitHub Release
@@ -119,7 +130,7 @@ jobs:
 
     steps:
       - name: Download all release artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           path: dist
 
