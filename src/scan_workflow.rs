@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
-use serde::Serialize;
 use std::net::Ipv4Addr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use crate::app::LoadTestSummary;
 use crate::{
     HostInfo, InterfaceInfo, NeighborInfo, ScanResult, active_arp_scan, calculate_risk_score,
     calculate_subnet_ips, dns_scan, guess_os_from_ttl, icmp_scan, infer_device_type,
@@ -11,20 +11,6 @@ use crate::{
 };
 
 const ARP_PHASE_TIMEOUT_SECS: u64 = 15;
-
-#[derive(Debug, Serialize)]
-pub(crate) struct LoadTestSummary {
-    interface_name: String,
-    iterations: u32,
-    concurrency: usize,
-    successful_scans: u32,
-    failed_scans: u32,
-    wall_time_ms: u64,
-    avg_scan_duration_ms: f64,
-    min_scan_duration_ms: u64,
-    max_scan_duration_ms: u64,
-    avg_hosts_found: f64,
-}
 
 pub(crate) async fn run_load_test(
     interface: &InterfaceInfo,

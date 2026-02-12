@@ -1,11 +1,13 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::cli::{CliCommand, parse_cli_args, usage_text, version_text};
 use crate::command_handlers::{
-    handle_ai_check, handle_ai_insights, handle_interfaces, handle_load_test, handle_scan,
+    ai_check_report, ai_insights_result, collect_interfaces, load_test_summary, scan_with_ai,
 };
+use crate::export_scan_result_with_ai_json;
 
 pub type OutputHook = Arc<dyn Fn(&str) + Send + Sync>;
 
@@ -14,6 +16,38 @@ pub struct AppContext {
     db_path: PathBuf,
     ai_settings: crate::AiSettings,
     output_hook: OutputHook,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScanWithAi {
+    pub scan: crate::ScanResult,
+    pub ai: Option<crate::HybridInsightsResult>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LoadTestSummary {
+    pub interface_name: String,
+    pub iterations: u32,
+    pub concurrency: usize,
+    pub successful_scans: u32,
+    pub failed_scans: u32,
+    pub wall_time_ms: u64,
+    pub avg_scan_duration_ms: f64,
+    pub min_scan_duration_ms: u64,
+    pub max_scan_duration_ms: u64,
+    pub avg_hosts_found: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "payload", rename_all = "snake_case")]
+pub enum AppCommandResult {
+    HelpText(String),
+    VersionText(String),
+    Interfaces(Vec<String>),
+    AiCheck(crate::AiCheckReport),
+    AiInsights(crate::HybridInsightsResult),
+    Scan(ScanWithAi),
+    LoadTest(LoadTestSummary),
 }
 
 impl Default for AppContext {
@@ -87,30 +121,103 @@ pub async fn execute_command(command: CliCommand) -> Result<()> {
 
 /// Execute a pre-parsed command with an explicit execution context.
 pub async fn execute_command_with_context(command: CliCommand, context: &AppContext) -> Result<()> {
+    let result = execute_command_typed(command, context).await?;
+    emit_command_result(&result, context)
+}
+
+/// Execute a pre-parsed command and return a strongly-typed result payload.
+pub async fn execute_command_typed(
+    command: CliCommand,
+    context: &AppContext,
+) -> Result<AppCommandResult> {
     match command {
-        CliCommand::Help => {
-            context.emit_line(&usage_text());
-            Ok(())
-        }
-        CliCommand::Version => {
-            context.emit_line(&version_text());
-            Ok(())
-        }
-        CliCommand::Interfaces => handle_interfaces(context).await,
-        CliCommand::AiCheck => handle_ai_check(context).await,
-        CliCommand::AiInsights => handle_ai_insights(context).await,
-        CliCommand::Scan { interface } => handle_scan(interface, context).await,
+        CliCommand::Help => Ok(AppCommandResult::HelpText(usage_text())),
+        CliCommand::Version => Ok(AppCommandResult::VersionText(version_text())),
+        CliCommand::Interfaces => Ok(AppCommandResult::Interfaces(collect_interfaces())),
+        CliCommand::AiCheck => Ok(AppCommandResult::AiCheck(ai_check_report(context).await?)),
+        CliCommand::AiInsights => Ok(AppCommandResult::AiInsights(
+            ai_insights_result(context).await?,
+        )),
+        CliCommand::Scan { interface } => Ok(AppCommandResult::Scan(
+            scan_with_ai(interface, context).await?,
+        )),
         CliCommand::LoadTest {
             interface,
             iterations,
             concurrency,
-        } => handle_load_test(interface, iterations, concurrency, context).await,
+        } => Ok(AppCommandResult::LoadTest(
+            load_test_summary(interface, iterations, concurrency, context).await?,
+        )),
     }
+}
+
+fn emit_command_result(result: &AppCommandResult, context: &AppContext) -> Result<()> {
+    match result {
+        AppCommandResult::HelpText(text) => {
+            context.emit_line(text);
+            Ok(())
+        }
+        AppCommandResult::VersionText(text) => {
+            context.emit_line(text);
+            Ok(())
+        }
+        AppCommandResult::Interfaces(interfaces) => {
+            if interfaces.is_empty() {
+                context.emit_line("No valid IPv4 network interfaces found.");
+            } else {
+                for interface in interfaces {
+                    context.emit_line(interface);
+                }
+            }
+            Ok(())
+        }
+        AppCommandResult::AiCheck(report) => {
+            let output = serde_json::to_string_pretty(report)
+                .context("Failed to serialize ai-check report")?;
+            context.emit_line(&output);
+            Ok(())
+        }
+        AppCommandResult::AiInsights(result) => {
+            let output = serde_json::to_string_pretty(result)
+                .context("Failed to serialize ai-insights output")?;
+            context.emit_line(&output);
+            Ok(())
+        }
+        AppCommandResult::Scan(result) => {
+            let ai_ref = ai_payload_for_export(result);
+            let json = export_scan_result_with_ai_json(&result.scan, ai_ref)
+                .context("Failed to serialize scan result JSON")?;
+            context.emit_line(&json);
+            Ok(())
+        }
+        AppCommandResult::LoadTest(summary) => {
+            let output = serde_json::to_string_pretty(summary)
+                .context("Failed to serialize load-test summary")?;
+            context.emit_line(&output);
+            Ok(())
+        }
+    }
+}
+
+fn ai_payload_for_export(scan: &ScanWithAi) -> Option<&crate::HybridInsightsResult> {
+    scan.ai.as_ref().and_then(|ai| {
+        if ai.ai_overlay.is_some()
+            || ai.ai_provider.is_some()
+            || ai.ai_model.is_some()
+            || ai.ai_error.is_some()
+        {
+            Some(ai)
+        } else {
+            None
+        }
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{HostInfo, ScanResult};
+    use crate::{CliCommand, HostInfo, ScanResult};
+
+    use super::{AppCommandResult, AppContext, execute_command_typed};
 
     #[test]
     fn test_scan_result_serialization() {
@@ -140,5 +247,15 @@ mod tests {
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("\"interface_name\":\"eth0\""));
         assert!(json.contains("\"open_ports\":[80]"));
+    }
+
+    #[tokio::test]
+    async fn execute_command_typed_help_returns_help_variant() {
+        let context = AppContext::from_env();
+        let result = execute_command_typed(CliCommand::Help, &context)
+            .await
+            .expect("typed command execution should succeed");
+
+        assert!(matches!(result, AppCommandResult::HelpText(text) if text.contains("Usage:")));
     }
 }

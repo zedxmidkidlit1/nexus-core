@@ -1,37 +1,27 @@
-use anyhow::{Context, Result};
-
-use crate::app::AppContext;
-use crate::scan_workflow::{persist_scan_result, run_load_test, scan_network};
+use anyhow::Result;
 
 use crate::ai::{generate_hybrid_insights_with_settings, run_ai_check_with_settings};
-use crate::{
-    export_scan_result_with_ai_json, find_interface_by_name, find_valid_interface,
-    list_valid_interfaces,
-};
+use crate::app::{AppContext, LoadTestSummary, ScanWithAi};
+use crate::scan_workflow::{persist_scan_result, run_load_test, scan_network};
+use crate::{find_interface_by_name, find_valid_interface, list_valid_interfaces};
 
-pub(crate) async fn handle_interfaces(context: &AppContext) -> Result<()> {
-    let interfaces = list_valid_interfaces();
-    if interfaces.is_empty() {
-        context.emit_line("No valid IPv4 network interfaces found.");
-    } else {
-        for interface in interfaces {
-            context.emit_line(&interface);
-        }
-    }
-    Ok(())
+pub(crate) fn collect_interfaces() -> Vec<String> {
+    list_valid_interfaces()
 }
 
-pub(crate) async fn handle_ai_check(context: &AppContext) -> Result<()> {
-    let report = run_ai_check_with_settings(context.ai_settings()).await;
-    let output =
-        serde_json::to_string_pretty(&report).context("Failed to serialize ai-check report")?;
-    context.emit_line(&output);
-    Ok(())
+pub(crate) async fn ai_check_report(context: &AppContext) -> Result<crate::AiCheckReport> {
+    Ok(run_ai_check_with_settings(context.ai_settings()).await)
 }
 
-pub(crate) async fn handle_ai_insights(context: &AppContext) -> Result<()> {
-    let db = crate::database::Database::new(context.db_path().to_path_buf())
-        .context("Failed to open database. Run a scan first to create baseline data")?;
+pub(crate) async fn ai_insights_result(
+    context: &AppContext,
+) -> Result<crate::HybridInsightsResult> {
+    let db = crate::database::Database::new(context.db_path().to_path_buf()).map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to open database. Run a scan first to create baseline data: {}",
+            e
+        )
+    })?;
 
     let hosts = {
         let conn = db.connection();
@@ -39,7 +29,7 @@ pub(crate) async fn handle_ai_insights(context: &AppContext) -> Result<()> {
             .lock()
             .map_err(|_| anyhow::anyhow!("Database connection lock poisoned"))?;
         crate::database::queries::get_latest_scan_hosts(&conn)
-            .context("Failed to load hosts from latest scan history")?
+            .map_err(|e| anyhow::anyhow!("Failed to load hosts from latest scan history: {}", e))?
     };
 
     if hosts.is_empty() {
@@ -48,14 +38,13 @@ pub(crate) async fn handle_ai_insights(context: &AppContext) -> Result<()> {
         ));
     }
 
-    let result = generate_hybrid_insights_with_settings(&hosts, context.ai_settings()).await;
-    let output =
-        serde_json::to_string_pretty(&result).context("Failed to serialize ai-insights output")?;
-    context.emit_line(&output);
-    Ok(())
+    Ok(generate_hybrid_insights_with_settings(&hosts, context.ai_settings()).await)
 }
 
-pub(crate) async fn handle_scan(interface: Option<String>, context: &AppContext) -> Result<()> {
+pub(crate) async fn scan_with_ai(
+    interface: Option<String>,
+    context: &AppContext,
+) -> Result<ScanWithAi> {
     crate::log_stderr!(
         "NEXUS Core Engine — Network Discovery v{}",
         env!("CARGO_PKG_VERSION")
@@ -82,30 +71,18 @@ pub(crate) async fn handle_scan(interface: Option<String>, context: &AppContext)
         None
     };
 
-    let ai_ref = ai_result.as_ref().and_then(|ai| {
-        if ai.ai_overlay.is_some()
-            || ai.ai_provider.is_some()
-            || ai.ai_model.is_some()
-            || ai.ai_error.is_some()
-        {
-            Some(ai)
-        } else {
-            None
-        }
-    });
-
-    let json = export_scan_result_with_ai_json(&result, ai_ref)
-        .context("Failed to serialize scan result JSON")?;
-    context.emit_line(&json);
-    Ok(())
+    Ok(ScanWithAi {
+        scan: result,
+        ai: ai_result,
+    })
 }
 
-pub(crate) async fn handle_load_test(
+pub(crate) async fn load_test_summary(
     interface: Option<String>,
     iterations: u32,
     concurrency: usize,
-    context: &AppContext,
-) -> Result<()> {
+    _context: &AppContext,
+) -> Result<LoadTestSummary> {
     crate::log_stderr!(
         "NEXUS Core Engine — Load Test v{} (iterations={}, concurrency={})",
         env!("CARGO_PKG_VERSION"),
@@ -114,11 +91,7 @@ pub(crate) async fn handle_load_test(
     );
 
     let selected_interface = select_interface(interface)?;
-    let summary = run_load_test(&selected_interface, iterations, concurrency).await?;
-    let output =
-        serde_json::to_string_pretty(&summary).context("Failed to serialize load-test summary")?;
-    context.emit_line(&output);
-    Ok(())
+    run_load_test(&selected_interface, iterations, concurrency).await
 }
 
 fn select_interface(interface: Option<String>) -> Result<crate::InterfaceInfo> {
