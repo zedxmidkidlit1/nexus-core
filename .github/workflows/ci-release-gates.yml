@@ -8,14 +8,17 @@ on:
       - "v*"
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   quality-linux:
     name: Fmt, Clippy, Tests, Smoke (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -45,11 +48,11 @@ jobs:
 
   windows-link-check:
     name: Windows Build/Link Check (Npcap SDK)
-    runs-on: windows-latest
+    runs-on: windows-2025
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Npcap SDK (Packet.lib)
         shell: pwsh
