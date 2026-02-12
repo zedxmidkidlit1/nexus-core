@@ -1,7 +1,6 @@
 # Rust / Cargo
 /target/
 **/*.rs.bk
-Cargo.lock
 
 # IDE / Editor
 .idea/
@@ -34,3 +33,7 @@ npcap-sdk/
 # Build outputs
 *.exe
 *.msi
+
+# Local benchmark artifacts
+benchmarks/*.json
+benchmarks/*.txt
