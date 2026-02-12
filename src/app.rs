@@ -141,6 +141,28 @@ where
     run_with_context(args, &context).await
 }
 
+/// Run the app with Ctrl+C cancellation wired into the provided context.
+/// This is intended for CLI-style entrypoints.
+pub async fn run_with_ctrl_c<I, S>(args: I, context: &AppContext) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let cancel_context = context.clone();
+    let signal_task = tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            cancel_context.cancel();
+            crate::log_stderr!(
+                "Cancellation requested (Ctrl+C). Stopping after current scan phase..."
+            );
+        }
+    });
+
+    let run_result = run_with_context(args, context).await;
+    signal_task.abort();
+    run_result
+}
+
 /// Run the app with an explicit context (db path, AI settings, and output hooks).
 pub async fn run_with_context<I, S>(args: I, context: &AppContext) -> Result<()>
 where
