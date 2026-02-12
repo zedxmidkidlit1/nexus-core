@@ -27,6 +27,9 @@ logs/
 *.temp
 *.bak
 
+# Local packaging output
+dist/
+
 # Npcap SDK (install separately)
 npcap-sdk/
 

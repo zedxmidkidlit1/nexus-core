@@ -1,0 +1,193 @@
+name: Cross Platform Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            package_ext: tar.gz
+            needs_npcap: false
+          - os: macos-13
+            target: x86_64-apple-darwin
+            package_ext: tar.gz
+            needs_npcap: false
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            package_ext: zip
+            needs_npcap: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Npcap SDK (Packet.lib)
+        if: matrix.needs_npcap
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $zipPath = Join-Path $env:RUNNER_TEMP "npcap-sdk.zip"
+          $extractRoot = Join-Path $env:RUNNER_TEMP "npcap-sdk-extract"
+          $urls = @(
+            "https://npcap.com/dist/npcap-sdk-1.13.zip",
+            "https://npcap.com/dist/npcap-sdk.zip"
+          )
+
+          $downloaded = $false
+          foreach ($url in $urls) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $zipPath
+              Write-Host "Downloaded Npcap SDK from $url"
+              $downloaded = $true
+              break
+            } catch {
+              Write-Host "Failed to download from $url"
+            }
+          }
+          if (-not $downloaded) {
+            throw "Failed to download Npcap SDK from known URLs."
+          }
+
+          if (Test-Path $extractRoot) {
+            Remove-Item -Path $extractRoot -Recurse -Force
+          }
+          New-Item -Path $extractRoot -ItemType Directory | Out-Null
+          Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
+
+          $packetLib = $null
+          $candidate = Get-ChildItem -Path $extractRoot -Recurse -Filter "Packet.lib" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\Lib\\x64\\Packet\.lib$" } |
+            Select-Object -First 1
+          if ($candidate) {
+            $packetLib = $candidate
+          }
+
+          if (-not $packetLib) {
+            $knownPacketLibPaths = @(
+              "C:\\npcap-sdk\\Lib\\x64\\Packet.lib",
+              "C:\\Program Files\\Npcap\\SDK\\Lib\\x64\\Packet.lib"
+            )
+            foreach ($knownPath in $knownPacketLibPaths) {
+              if (Test-Path $knownPath) {
+                $packetLib = Get-Item $knownPath
+                break
+              }
+            }
+          }
+
+          if (-not $packetLib) {
+            throw "Packet.lib not found after Npcap SDK extraction. Checked: $extractRoot"
+          }
+
+          $libDir = $packetLib.Directory.FullName
+          "LIB=$libDir;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Configured Packet.lib search path: $libDir"
+
+      - name: Build release binary
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: matrix.package_ext == 'tar.gz'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          TARGET="${{ matrix.target }}"
+          PKG_BASE="nexus-core-${VERSION}-${TARGET}"
+          STAGE_DIR="dist/${PKG_BASE}"
+          BIN_PATH="target/${TARGET}/release/nexus-core"
+
+          mkdir -p "${STAGE_DIR}"
+          cp "${BIN_PATH}" "${STAGE_DIR}/nexus-core"
+          chmod +x "${STAGE_DIR}/nexus-core"
+
+          for f in README.md PROJECTCONTEXT.md .env.example; do
+            if [[ -f "${f}" ]]; then
+              cp "${f}" "${STAGE_DIR}/"
+            fi
+          done
+
+          tar -czf "dist/${PKG_BASE}.tar.gz" -C dist "${PKG_BASE}"
+          shasum -a 256 "dist/${PKG_BASE}.tar.gz" > "dist/${PKG_BASE}.sha256"
+
+      - name: Package (Windows)
+        if: matrix.package_ext == 'zip'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${env:GITHUB_REF_NAME}"
+          $target = "${{ matrix.target }}"
+          $pkgBase = "nexus-core-$version-$target"
+          $stageDir = Join-Path "dist" $pkgBase
+          $binPath = Join-Path "target\$target\release" "nexus-core.exe"
+          $archivePath = Join-Path "dist" "$pkgBase.zip"
+          $shaPath = Join-Path "dist" "$pkgBase.sha256"
+
+          New-Item -Path $stageDir -ItemType Directory -Force | Out-Null
+          Copy-Item -Path $binPath -Destination (Join-Path $stageDir "nexus-core.exe") -Force
+
+          foreach ($f in @("README.md", "PROJECTCONTEXT.md", ".env.example")) {
+            if (Test-Path $f) {
+              Copy-Item -Path $f -Destination (Join-Path $stageDir $f) -Force
+            }
+          }
+
+          Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $archivePath -Force
+          $hash = (Get-FileHash -Algorithm SHA256 $archivePath).Hash.ToLower()
+          "$hash  $([System.IO.Path]::GetFileName($archivePath))" | Set-Content -Path $shaPath -Encoding UTF8
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/nexus-core-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.package_ext }}
+            dist/nexus-core-${{ github.ref_name }}-${{ matrix.target }}.sha256
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download all release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifact directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dist -maxdepth 3 -type f -print0 | while IFS= read -r -d '' file; do
+            cp "$file" dist/
+          done
+          ls -la dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.sha256
