@@ -32,8 +32,8 @@ pub use database::{
     AlertRecord, AlertSeverity, AlertType, Database, DeviceRecord, NetworkStats, ScanRecord,
 };
 pub use exports::{
-    export_devices_csv, export_hosts_csv, export_scan_result_json, export_topology_json,
-    generate_network_health_pdf, generate_scan_report_pdf,
+    export_devices_csv, export_hosts_csv, export_scan_result_json, export_scan_result_with_ai_json,
+    export_topology_json, generate_network_health_pdf, generate_scan_report_pdf,
 };
 pub use insights::{
     DeviceDistribution, NetworkHealth, Recommendation, SecurityReport, VendorDistribution,

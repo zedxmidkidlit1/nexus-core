@@ -167,6 +167,8 @@ $env:NEXUS_AI_ENABLED="true"; $env:NEXUS_AI_MODE="local"; $env:NEXUS_AI_MODEL="q
 cargo clippy --all-targets
 ```
 
+When `NEXUS_AI_ENABLED=true`, `scan` JSON output includes an optional top-level `ai` block with provider/model metadata, overlay text, and fallback error details.
+
 ## Release Hardening & Benchmarking (v0.5)
 
 - `Cargo.toml` includes hardened release settings under `[profile.release]`:

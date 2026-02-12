@@ -12,10 +12,11 @@ use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
 use nexus_core::{
-    HostInfo, InterfaceInfo, NeighborInfo, ScanResult, active_arp_scan, calculate_risk_score,
-    calculate_subnet_ips, dns_scan, find_interface_by_name, find_valid_interface,
-    guess_os_from_ttl, icmp_scan, infer_device_type, list_valid_interfaces, lookup_vendor_info,
-    run_ai_check, snmp_enabled, snmp_enrich, tcp_probe_scan,
+    AiSettings, HostInfo, InterfaceInfo, NeighborInfo, ScanResult, active_arp_scan,
+    calculate_risk_score, calculate_subnet_ips, dns_scan, export_scan_result_with_ai_json,
+    find_interface_by_name, find_valid_interface, generate_hybrid_insights, guess_os_from_ttl,
+    icmp_scan, infer_device_type, list_valid_interfaces, lookup_vendor_info, run_ai_check,
+    snmp_enabled, snmp_enrich, tcp_probe_scan,
 };
 
 /// Logs a message to stderr
@@ -568,8 +569,27 @@ where
             };
 
             let result = scan_network(&selected_interface).await?;
-            let json =
-                serde_json::to_string_pretty(&result).context("Failed to serialize scan result")?;
+            let ai_settings = AiSettings::from_env();
+            let ai_result = if ai_settings.enabled {
+                Some(generate_hybrid_insights(&result.active_hosts).await)
+            } else {
+                None
+            };
+
+            let ai_ref = ai_result.as_ref().and_then(|ai| {
+                if ai.ai_overlay.is_some()
+                    || ai.ai_provider.is_some()
+                    || ai.ai_model.is_some()
+                    || ai.ai_error.is_some()
+                {
+                    Some(ai)
+                } else {
+                    None
+                }
+            });
+
+            let json = export_scan_result_with_ai_json(&result, ai_ref)
+                .context("Failed to serialize scan result JSON")?;
             println!("{}", json);
             Ok(())
         }
