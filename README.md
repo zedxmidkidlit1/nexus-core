@@ -150,6 +150,9 @@ cargo run -- load-test --interface "<INTERFACE_NAME>" --iterations 10 --concurre
 # Validate AI provider connectivity + model availability
 cargo run -- ai-check
 
+# Generate AI insights from latest persisted scan history
+cargo run -- ai-insights
+
 # Enable optional PDF export backend
 cargo build --features pdf-export
 

@@ -48,6 +48,7 @@ enum CliCommand {
         concurrency: usize,
     },
     AiCheck,
+    AiInsights,
     Interfaces,
     Help,
     Version,
@@ -66,6 +67,7 @@ Usage:
   nexus-core [scan] [--interface <NAME>]
   nexus-core load-test [--interface <NAME>] [--iterations <N>] [--concurrency <N>]
   nexus-core ai-check
+  nexus-core ai-insights
   nexus-core interfaces
   nexus-core --help
   nexus-core --version
@@ -122,7 +124,7 @@ where
         match arg {
             "-h" | "--help" => return Ok(CliCommand::Help),
             "-V" | "--version" => return Ok(CliCommand::Version),
-            "scan" | "interfaces" | "load-test" | "ai-check" => {
+            "scan" | "interfaces" | "load-test" | "ai-check" | "ai-insights" => {
                 if command.as_deref().is_some_and(|existing| existing != arg) {
                     return Err(anyhow::anyhow!(
                         "Multiple commands provided. Use only one command.\n\n{}",
@@ -220,6 +222,15 @@ where
                 ));
             }
             Ok(CliCommand::AiCheck)
+        }
+        "ai-insights" => {
+            if interface.is_some() || iterations.is_some() || concurrency.is_some() {
+                return Err(anyhow::anyhow!(
+                    "--interface/--iterations/--concurrency are not valid with ai-insights.\n\n{}",
+                    usage_text()
+                ));
+            }
+            Ok(CliCommand::AiInsights)
         }
         _ => unreachable!(),
     }
@@ -549,6 +560,34 @@ where
             );
             Ok(())
         }
+        CliCommand::AiInsights => {
+            let db =
+                nexus_core::database::Database::new(nexus_core::database::Database::default_path())
+                    .context("Failed to open database. Run a scan first to create baseline data")?;
+
+            let hosts = {
+                let conn = db.connection();
+                let conn = conn
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("Database connection lock poisoned"))?;
+                nexus_core::database::queries::get_latest_scan_hosts(&conn)
+                    .context("Failed to load hosts from latest scan history")?
+            };
+
+            if hosts.is_empty() {
+                return Err(anyhow::anyhow!(
+                    "No hosts found in latest persisted scan. Run `nexus-core scan` with persistence workflow first."
+                ));
+            }
+
+            let result = generate_hybrid_insights(&hosts).await;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&result)
+                    .context("Failed to serialize ai-insights output")?
+            );
+            Ok(())
+        }
         CliCommand::Scan { interface } => {
             log_stderr!(
                 "NEXUS Core Engine — Network Discovery v{}",
@@ -679,6 +718,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_ai_insights_command() {
+        let args = ["nexus-core", "ai-insights"];
+        let parsed = parse_cli_args(args).expect("ai-insights command should parse");
+        assert_eq!(parsed, CliCommand::AiInsights);
+    }
+
+    #[test]
     fn parse_load_test_command_with_options() {
         let args = [
             "nexus-core",
@@ -714,6 +760,13 @@ mod tests {
         let args = ["nexus-core", "ai-check", "--interface", "Ethernet"];
         let err = parse_cli_args(args).expect_err("ai-check should reject scan flags");
         assert!(err.to_string().contains("not valid with ai-check"));
+    }
+
+    #[test]
+    fn parse_ai_insights_rejects_scan_flags() {
+        let args = ["nexus-core", "ai-insights", "--interface", "Ethernet"];
+        let err = parse_cli_args(args).expect_err("ai-insights should reject scan flags");
+        assert!(err.to_string().contains("not valid with ai-insights"));
     }
 
     #[test]
