@@ -10,6 +10,7 @@
 //! - Alert detection and notifications
 //! - AI-powered network insights
 
+pub mod ai;
 pub mod alerts;
 pub mod config;
 pub mod database;
@@ -21,6 +22,9 @@ pub mod monitor;
 pub mod network;
 pub mod scanner;
 
+pub use ai::{
+    AiInsightOverlay, AiMode, AiSettings, HybridInsightsResult, generate_hybrid_insights,
+};
 pub use alerts::{Alert, detect_alerts, detect_alerts_without_baseline, has_high_priority_alerts};
 pub use config::*;
 pub use database::{
@@ -31,8 +35,7 @@ pub use exports::{
     generate_network_health_pdf, generate_scan_report_pdf,
 };
 pub use insights::{
-    AiInsightOverlay, AiMode, AiSettings, DeviceDistribution, HybridInsightsResult, NetworkHealth,
-    Recommendation, SecurityReport, VendorDistribution, generate_hybrid_insights,
+    DeviceDistribution, NetworkHealth, Recommendation, SecurityReport, VendorDistribution,
 };
 pub use models::*;
 pub use monitor::{BackgroundMonitor, MonitoringStatus, NetworkEvent};

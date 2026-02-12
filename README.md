@@ -256,8 +256,18 @@ NEXUS-core/
 │   │   ├── watcher.rs      # Background scan loop + live change detection
 │   │   ├── events.rs       # 10 NetworkEvent types for frontend IPC
 │   │   └── passive_integration.rs  # mDNS/ARP listener helpers
+│   ├── ai/
+│   │   ├── mod.rs          # AI module entry + public re-exports
+│   │   ├── config.rs       # Env-driven AI runtime settings
+│   │   ├── types.rs        # AI mode/overlay/result shared types
+│   │   ├── prompt.rs       # Structured prompt construction
+│   │   ├── redaction.rs    # Cloud-safe digest/redaction pipeline
+│   │   ├── provider.rs     # Provider trait + response JSON parsing
+│   │   ├── router.rs       # Local/cloud/hybrid policy routing + fallback
+│   │   └── providers/
+│   │       ├── ollama.rs   # Ollama provider implementation
+│   │       └── gemini.rs   # Gemini provider implementation
 │   ├── insights/
-│   │   ├── ai.rs           # Hybrid AI provider routing + LLM overlay generation
 │   │   ├── health.rs       # 3-component health score (security/stability/compliance)
 │   │   ├── security.rs     # Per-device A–F security grading
 │   │   ├── distribution.rs # Device type + vendor distribution stats
