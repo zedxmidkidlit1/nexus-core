@@ -1,8 +1,9 @@
 //! Test the AI insights system
 
-use nexus_core::{DeviceDistribution, HostInfo, NetworkHealth, SecurityReport, VendorDistribution};
+use nexus_core::{HostInfo, generate_hybrid_insights};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     println!("=== AI Insights Test ===\n");
 
     // Simulate scan results
@@ -89,48 +90,53 @@ fn main() {
         },
     ];
 
+    let result = generate_hybrid_insights(&hosts).await;
+
     // 1. Network Health
     println!("━━━ Network Health ━━━");
-    let health = NetworkHealth::calculate(&hosts);
-    println!("Score: {}/100 (Grade: {})", health.score, health.grade);
-    println!("Status: {}", health.status);
+    println!(
+        "Score: {}/100 (Grade: {})",
+        result.health.score, result.health.grade
+    );
+    println!("Status: {}", result.health.status);
     println!("Breakdown:");
-    println!("  Security:   {}/40", health.breakdown.security);
-    println!("  Stability:  {}/30", health.breakdown.stability);
-    println!("  Compliance: {}/30", health.breakdown.compliance);
+    println!("  Security:   {}/40", result.health.breakdown.security);
+    println!("  Stability:  {}/30", result.health.breakdown.stability);
+    println!("  Compliance: {}/30", result.health.breakdown.compliance);
     println!("\nInsights:");
-    for insight in &health.insights {
+    for insight in &result.health.insights {
         println!("  • {}", insight);
     }
 
     // 2. Device Distribution
     println!("\n━━━ Device Distribution ━━━");
-    let distribution = DeviceDistribution::calculate(&hosts);
-    println!("Summary: {}", distribution.summary);
+    println!("Summary: {}", result.device_distribution.summary);
     println!("By Type:");
-    for (dtype, count) in &distribution.by_type {
-        let pct = distribution.percentages.get(dtype).unwrap_or(&0.0);
+    for (dtype, count) in &result.device_distribution.by_type {
+        let pct = result
+            .device_distribution
+            .percentages
+            .get(dtype)
+            .unwrap_or(&0.0);
         println!("  {} : {} ({:.1}%)", dtype, count, pct);
     }
 
     // 3. Vendor Distribution
     println!("\n━━━ Vendor Distribution ━━━");
-    let vendors = VendorDistribution::calculate(&hosts);
     println!("Top Vendors:");
-    for (vendor, count) in &vendors.top_vendors {
+    for (vendor, count) in &result.vendor_distribution.top_vendors {
         println!("  {} : {}", vendor, count);
     }
 
     // 4. Security Recommendations
     println!("\n━━━ Security Report ━━━");
-    let report = SecurityReport::generate(&hosts);
-    println!("Summary: {}", report.summary);
+    println!("Summary: {}", result.security.summary);
     println!(
         "Critical: {} | High: {} | Total: {}",
-        report.critical_count, report.high_count, report.total_issues
+        result.security.critical_count, result.security.high_count, result.security.total_issues
     );
     println!("\nRecommendations:");
-    for rec in &report.recommendations {
+    for rec in &result.security.recommendations {
         println!(
             "\n[{}] {} - {}",
             rec.priority.as_str(),
@@ -140,6 +146,37 @@ fn main() {
         println!("  {}", rec.description);
         if !rec.affected_devices.is_empty() {
             println!("  Affected: {:?}", rec.affected_devices);
+        }
+    }
+
+    // 5. Optional AI overlay (policy-driven: local/cloud/hybrid)
+    println!("\n━━━ AI Overlay (Optional) ━━━");
+    match (&result.ai_overlay, &result.ai_provider, &result.ai_model) {
+        (Some(ai), Some(provider), Some(model)) => {
+            println!("Provider: {} ({})", provider, model);
+            println!("Executive Summary: {}", ai.executive_summary);
+            println!("Top Risks:");
+            for risk in &ai.top_risks {
+                println!("  - {}", risk);
+            }
+            println!("Immediate Actions:");
+            for action in &ai.immediate_actions {
+                println!("  - {}", action);
+            }
+            if !ai.follow_up_actions.is_empty() {
+                println!("Follow-up Actions:");
+                for action in &ai.follow_up_actions {
+                    println!("  - {}", action);
+                }
+            }
+        }
+        _ => {
+            println!("AI overlay not available (disabled or provider call failed).");
+            if let Some(err) = &result.ai_error {
+                println!("Reason: {}", err);
+            } else {
+                println!("Enable with env vars, e.g. NEXUS_AI_ENABLED=true NEXUS_AI_MODE=local.");
+            }
         }
     }
 

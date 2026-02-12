@@ -91,6 +91,11 @@ This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../S
   - RDP exposure (Medium)
   - Randomized MAC tracking (Low)
   - Unidentified device classification (Info)
+- **Hybrid AI Overlay (Optional)** — Policy-driven LLM augmentation over rule-based output:
+  - Local: Ollama (`NEXUS_AI_MODE=local`)
+  - Cloud: Gemini API (`NEXUS_AI_MODE=cloud`)
+  - Hybrid auto failover (`NEXUS_AI_MODE=hybrid_auto`)
+  - Deterministic fallback preserved if AI is disabled/unavailable
 - **Device Distribution** — Type and vendor breakdown with percentages and top-5 ranking
 - **Vendor Distribution** — Manufacturer analytics with dominant vendor identification
 
@@ -152,6 +157,9 @@ cargo test --all-targets
 cargo run --bin test_alerts
 cargo run --bin test_insights
 
+# Optional: run AI-augmented insights locally (Ollama)
+$env:NEXUS_AI_ENABLED="true"; $env:NEXUS_AI_MODE="local"; $env:NEXUS_AI_MODEL="qwen3:8b"; cargo run --bin test_insights
+
 # Lint
 cargo clippy --all-targets
 ```
@@ -195,6 +203,15 @@ Core scanner behavior can now be tuned at runtime via environment variables:
 - `NEXUS_MIN_MONITOR_INTERVAL`
 - `NEXUS_MAX_MONITOR_INTERVAL`
 - `NEXUS_CAME_ONLINE_STALE_MINUTES`
+- `NEXUS_AI_ENABLED` (`true|false`)
+- `NEXUS_AI_MODE` (`local|cloud|hybrid_auto`)
+- `NEXUS_AI_TIMEOUT_MS`
+- `NEXUS_AI_ENDPOINT` (default: `http://127.0.0.1:11434`)
+- `NEXUS_AI_MODEL` (default: `qwen3:8b`)
+- `NEXUS_AI_GEMINI_ENDPOINT` (default: Google Generative Language API base URL)
+- `NEXUS_AI_GEMINI_MODEL`
+- `NEXUS_AI_GEMINI_API_KEY`
+- `NEXUS_AI_CLOUD_ALLOW_SENSITIVE` (default: `false`; if `false`, cloud prompts redact host identifiers)
 
 ---
 
@@ -240,6 +257,7 @@ NEXUS-core/
 │   │   ├── events.rs       # 10 NetworkEvent types for frontend IPC
 │   │   └── passive_integration.rs  # mDNS/ARP listener helpers
 │   ├── insights/
+│   │   ├── ai.rs           # Hybrid AI provider routing + LLM overlay generation
 │   │   ├── health.rs       # 3-component health score (security/stability/compliance)
 │   │   ├── security.rs     # Per-device A–F security grading
 │   │   ├── distribution.rs # Device type + vendor distribution stats
@@ -273,12 +291,13 @@ NEXUS-core/
 - [x] **Generate DeviceCameOnline alerts** — Return-to-network lifecycle is emitted for previously offline devices
 - [x] **Fix MonitoringStatus total count** — `devices_total` now reflects session-wide unique devices seen
 - [x] **Configurable SNMP community/timeout/port** — Runtime-configurable via environment variables
+- [x] **Hybrid AI provider integration** — Added policy-driven Ollama/Gemini routing with deterministic fallback and cloud-redaction default
 
 ### Remaining backlog
 
 - [ ] **SNMP LLDP topology discovery** — LLDP OIDs are defined, but remote-table walk + topology edge construction is still pending
 - [ ] **DB-port recommendation parity in insights engine** — Port warnings exist, but recommendations do not yet elevate DB ports (3306/5432/27017/1433) as dedicated advice
-- [ ] **AI model integration** — No Gemini/Ollama summarization/anomaly pipeline is implemented yet
+- [ ] **AI deepening** — Add anomaly-specific prompts, evaluation harness, and provider quality/cost policy tuning
 - [ ] **Optional ICMP/SNMP in monitor loop** — Current monitor scan path is ARP + TCP + DNS (SNMP optional in main scan path only)
 - [ ] **Rogue-device trust policy** — No user-managed MAC allowlist/rules engine yet
 - [ ] **Auto-refresh CVE feeds** — CVE/port warning seeds are local; no automatic NVD sync pipeline yet

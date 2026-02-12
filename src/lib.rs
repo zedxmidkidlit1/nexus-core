@@ -31,7 +31,8 @@ pub use exports::{
     generate_network_health_pdf, generate_scan_report_pdf,
 };
 pub use insights::{
-    DeviceDistribution, NetworkHealth, Recommendation, SecurityReport, VendorDistribution,
+    AiInsightOverlay, AiMode, AiSettings, DeviceDistribution, HybridInsightsResult, NetworkHealth,
+    Recommendation, SecurityReport, VendorDistribution, generate_hybrid_insights,
 };
 pub use models::*;
 pub use monitor::{BackgroundMonitor, MonitoringStatus, NetworkEvent};
