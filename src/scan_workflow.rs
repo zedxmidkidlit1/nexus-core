@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use crate::app::LoadTestSummary;
+use crate::app::{AppContext, AppEvent, LoadTestSummary};
 use crate::{
     HostInfo, InterfaceInfo, NeighborInfo, ScanResult, active_arp_scan, calculate_risk_score,
     calculate_subnet_ips, dns_scan, guess_os_from_ttl, icmp_scan, infer_device_type,
@@ -11,6 +11,12 @@ use crate::{
 };
 
 const ARP_PHASE_TIMEOUT_SECS: u64 = 15;
+
+#[derive(Debug, Clone)]
+pub(crate) struct PersistedScan {
+    pub scan_id: i64,
+    pub path: String,
+}
 
 pub(crate) async fn run_load_test(
     interface: &InterfaceInfo,
@@ -29,7 +35,9 @@ pub(crate) async fn run_load_test(
         let mut batch = Vec::with_capacity(batch_size);
         for _ in 0..batch_size {
             let iface = interface.clone();
-            batch.push(tokio::spawn(async move { scan_network(&iface).await }));
+            batch.push(tokio::spawn(
+                async move { scan_network(&iface, None).await },
+            ));
         }
 
         for result in batch {
@@ -76,7 +84,7 @@ pub(crate) async fn run_load_test(
     })
 }
 
-pub(crate) fn persist_scan_result(result: &ScanResult, db_path: &Path) -> Result<()> {
+pub(crate) fn persist_scan_result(result: &ScanResult, db_path: &Path) -> Result<PersistedScan> {
     let db = crate::database::Database::new(db_path.to_path_buf())
         .context("Failed to open local database for scan persistence")?;
     let db_path = db.path().clone();
@@ -91,17 +99,25 @@ pub(crate) fn persist_scan_result(result: &ScanResult, db_path: &Path) -> Result
         scan_id,
         db_path.to_string_lossy()
     );
-    Ok(())
+    Ok(PersistedScan {
+        scan_id,
+        path: db_path.to_string_lossy().to_string(),
+    })
 }
 
-pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult> {
+pub(crate) async fn scan_network(
+    interface: &InterfaceInfo,
+    context: Option<&AppContext>,
+) -> Result<ScanResult> {
     let start_time = Instant::now();
+    emit_scan_phase(context, "init", 5);
     let (subnet, ips) = calculate_subnet_ips(interface)?;
 
     crate::log_stderr!("Starting Active ARP + ICMP scan on subnet {}...", subnet);
     crate::log_stderr!("================================================");
 
     // Phase 1: Active ARP Scan
+    emit_scan_phase(context, "arp", 20);
     let arp_scan_handle = tokio::task::spawn_blocking({
         let interface = interface.clone();
         let ips = ips.clone();
@@ -118,6 +134,14 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
                     "ARP phase exceeded {}s timeout; continuing with empty ARP host set",
                     ARP_PHASE_TIMEOUT_SECS
                 );
+                if let Some(ctx) = context {
+                    ctx.emit_event(AppEvent::Warn {
+                        message: format!(
+                            "ARP phase exceeded {}s timeout; continuing with empty ARP host set",
+                            ARP_PHASE_TIMEOUT_SECS
+                        ),
+                    });
+                }
                 std::collections::HashMap::new()
             }
         };
@@ -125,6 +149,7 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
     let arp_count = arp_hosts.len();
 
     // Phase 2 & 3: Run ICMP ping and TCP probe in parallel for faster scanning
+    emit_scan_phase(context, "tcp", 50);
     let (response_times_result, port_results_result) =
         tokio::join!(icmp_scan(&arp_hosts), tcp_probe_scan(&arp_hosts));
 
@@ -141,6 +166,7 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
 
     let snmp_is_enabled = snmp_enabled();
     let snmp_data = if snmp_is_enabled {
+        emit_scan_phase(context, "snmp", 65);
         match snmp_enrich(&host_ips).await {
             Ok(data) => data,
             Err(e) => {
@@ -148,6 +174,14 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
                     "SNMP enrichment failed; continuing without SNMP data: {}",
                     e
                 );
+                if let Some(ctx) = context {
+                    ctx.emit_event(AppEvent::Warn {
+                        message: format!(
+                            "SNMP enrichment failed; continuing without SNMP data: {}",
+                            e
+                        ),
+                    });
+                }
                 std::collections::HashMap::new()
             }
         }
@@ -156,6 +190,7 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
     };
 
     // Phase 5: DNS reverse lookup
+    emit_scan_phase(context, "dns", 80);
     let dns_hostnames = dns_scan(&host_ips).await;
 
     // Build results (exclude local machine from ARP - we add it separately)
@@ -268,6 +303,7 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
         icmp_count,
         scan_duration.as_secs_f64()
     );
+    emit_scan_phase(context, "complete", 100);
 
     let scan_method = if snmp_is_enabled {
         "Active ARP + ICMP + TCP + SNMP".to_string()
@@ -287,4 +323,13 @@ pub(crate) async fn scan_network(interface: &InterfaceInfo) -> Result<ScanResult
         scan_duration_ms: scan_duration.as_millis() as u64,
         active_hosts,
     })
+}
+
+fn emit_scan_phase(context: Option<&AppContext>, phase: &str, progress_pct: u8) {
+    if let Some(ctx) = context {
+        ctx.emit_event(AppEvent::ScanPhase {
+            phase: phase.to_string(),
+            progress_pct,
+        });
+    }
 }

@@ -4,9 +4,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use nexus_core::database::{Database, queries::insert_scan};
 use nexus_core::{
-    AiMode, AiSettings, AppContext, CliCommand, HostInfo, OutputHook, ScanResult,
-    execute_command_with_context,
+    AiMode, AiSettings, AppContext, AppEvent, CliCommand, EventHook, HostInfo, OutputHook,
+    ScanResult, execute_command_with_context,
 };
+
+type CapturedLines = Arc<Mutex<Vec<String>>>;
+type CapturedEvents = Arc<Mutex<Vec<AppEvent>>>;
 
 fn disabled_ai_settings() -> AiSettings {
     AiSettings {
@@ -22,8 +25,8 @@ fn disabled_ai_settings() -> AiSettings {
     }
 }
 
-fn make_test_context(db_path: Option<PathBuf>) -> (AppContext, Arc<Mutex<Vec<String>>>) {
-    let lines = Arc::new(Mutex::new(Vec::new()));
+fn make_test_context(db_path: Option<PathBuf>) -> (AppContext, CapturedLines) {
+    let lines: CapturedLines = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&lines);
     let output_hook: OutputHook = Arc::new(move |line| {
         sink.lock()
@@ -39,6 +42,21 @@ fn make_test_context(db_path: Option<PathBuf>) -> (AppContext, Arc<Mutex<Vec<Str
     }
 
     (context, lines)
+}
+
+fn make_test_context_with_events(
+    db_path: Option<PathBuf>,
+) -> (AppContext, CapturedLines, CapturedEvents) {
+    let (context, lines) = make_test_context(db_path);
+    let events: CapturedEvents = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&events);
+    let event_hook: EventHook = Arc::new(move |event| {
+        sink.lock()
+            .expect("event lock should not be poisoned")
+            .push(event.clone());
+    });
+
+    (context.with_event_hook(event_hook), lines, events)
 }
 
 fn unique_temp_db_path(prefix: &str) -> PathBuf {
@@ -86,6 +104,22 @@ async fn ai_check_uses_context_settings_and_outputs_json() {
         serde_json::Value::String("disabled".to_string())
     );
     assert_eq!(parsed["overall_ok"], serde_json::Value::Bool(true));
+}
+
+#[tokio::test]
+async fn ai_check_emits_info_event() {
+    let (context, _lines, events) = make_test_context_with_events(None);
+
+    execute_command_with_context(CliCommand::AiCheck, &context)
+        .await
+        .expect("ai-check should succeed");
+
+    let captured = events.lock().expect("event lock should not be poisoned");
+    assert!(
+        captured
+            .iter()
+            .any(|event| matches!(event, AppEvent::Info { message } if message.contains("AI provider diagnostics")))
+    );
 }
 
 #[tokio::test]

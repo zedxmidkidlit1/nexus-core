@@ -32,8 +32,8 @@ pub use ai::{
 };
 pub use alerts::{Alert, detect_alerts, detect_alerts_without_baseline, has_high_priority_alerts};
 pub use app::{
-    AppCommandResult, AppContext, LoadTestSummary, OutputHook, ScanWithAi, execute_command,
-    execute_command_typed, execute_command_with_context, run, run_with_context,
+    AppCommandResult, AppContext, AppEvent, EventHook, LoadTestSummary, OutputHook, ScanWithAi,
+    execute_command, execute_command_typed, execute_command_with_context, run, run_with_context,
 };
 pub use cli::{CliCommand, parse_cli_args, usage_text, version_text};
 pub use config::*;

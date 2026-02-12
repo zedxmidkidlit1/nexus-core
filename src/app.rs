@@ -10,12 +10,24 @@ use crate::command_handlers::{
 use crate::export_scan_result_with_ai_json;
 
 pub type OutputHook = Arc<dyn Fn(&str) + Send + Sync>;
+pub type EventHook = Arc<dyn Fn(&AppEvent) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct AppContext {
     db_path: PathBuf,
     ai_settings: crate::AiSettings,
     output_hook: OutputHook,
+    event_hook: EventHook,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AppEvent {
+    Info { message: String },
+    Warn { message: String },
+    Error { message: String },
+    ScanPhase { phase: String, progress_pct: u8 },
+    ScanPersisted { scan_id: i64, path: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,6 +74,7 @@ impl AppContext {
             db_path: crate::database::Database::default_path(),
             ai_settings: crate::AiSettings::from_env(),
             output_hook: Arc::new(|line| println!("{}", line)),
+            event_hook: Arc::new(|_| {}),
         }
     }
 
@@ -80,6 +93,11 @@ impl AppContext {
         self
     }
 
+    pub fn with_event_hook(mut self, event_hook: EventHook) -> Self {
+        self.event_hook = event_hook;
+        self
+    }
+
     pub fn db_path(&self) -> &Path {
         &self.db_path
     }
@@ -90,6 +108,10 @@ impl AppContext {
 
     pub fn emit_line(&self, line: &str) {
         (self.output_hook)(line);
+    }
+
+    pub fn emit_event(&self, event: AppEvent) {
+        (self.event_hook)(&event);
     }
 }
 
@@ -216,8 +238,9 @@ fn ai_payload_for_export(scan: &ScanWithAi) -> Option<&crate::HybridInsightsResu
 #[cfg(test)]
 mod tests {
     use crate::{CliCommand, HostInfo, ScanResult};
+    use std::sync::{Arc, Mutex};
 
-    use super::{AppCommandResult, AppContext, execute_command_typed};
+    use super::{AppCommandResult, AppContext, AppEvent, execute_command_typed};
 
     #[test]
     fn test_scan_result_serialization() {
@@ -257,5 +280,29 @@ mod tests {
             .expect("typed command execution should succeed");
 
         assert!(matches!(result, AppCommandResult::HelpText(text) if text.contains("Usage:")));
+    }
+
+    #[test]
+    fn context_event_hook_receives_emitted_event() {
+        let events: Arc<Mutex<Vec<AppEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&events);
+        let context = AppContext::from_env().with_event_hook(Arc::new(move |event| {
+            sink.lock()
+                .expect("event lock should not be poisoned")
+                .push(event.clone());
+        }));
+
+        context.emit_event(AppEvent::Info {
+            message: "hello".to_string(),
+        });
+
+        let captured = events.lock().expect("event lock should not be poisoned");
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0],
+            AppEvent::Info {
+                message: "hello".to_string()
+            }
+        );
     }
 }

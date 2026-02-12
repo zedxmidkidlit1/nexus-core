@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::ai::{generate_hybrid_insights_with_settings, run_ai_check_with_settings};
-use crate::app::{AppContext, LoadTestSummary, ScanWithAi};
+use crate::app::{AppContext, AppEvent, LoadTestSummary, ScanWithAi};
 use crate::scan_workflow::{persist_scan_result, run_load_test, scan_network};
 use crate::{find_interface_by_name, find_valid_interface, list_valid_interfaces};
 
@@ -10,12 +10,18 @@ pub(crate) fn collect_interfaces() -> Vec<String> {
 }
 
 pub(crate) async fn ai_check_report(context: &AppContext) -> Result<crate::AiCheckReport> {
+    context.emit_event(AppEvent::Info {
+        message: "Running AI provider diagnostics".to_string(),
+    });
     Ok(run_ai_check_with_settings(context.ai_settings()).await)
 }
 
 pub(crate) async fn ai_insights_result(
     context: &AppContext,
 ) -> Result<crate::HybridInsightsResult> {
+    context.emit_event(AppEvent::Info {
+        message: "Loading latest persisted scan for AI insights".to_string(),
+    });
     let db = crate::database::Database::new(context.db_path().to_path_buf()).map_err(|e| {
         anyhow::anyhow!(
             "Failed to open database. Run a scan first to create baseline data: {}",
@@ -53,13 +59,27 @@ pub(crate) async fn scan_with_ai(
     crate::log_stderr!("================================================");
 
     let selected_interface = select_interface(interface)?;
-    let result = scan_network(&selected_interface).await?;
+    let result = scan_network(&selected_interface, Some(context)).await?;
 
-    if let Err(e) = persist_scan_result(&result, context.db_path()) {
-        crate::log_error!(
-            "Scan persistence failed (continuing with JSON output): {}",
-            e
-        );
+    match persist_scan_result(&result, context.db_path()) {
+        Ok(persisted) => {
+            context.emit_event(AppEvent::ScanPersisted {
+                scan_id: persisted.scan_id,
+                path: persisted.path,
+            });
+        }
+        Err(e) => {
+            crate::log_error!(
+                "Scan persistence failed (continuing with JSON output): {}",
+                e
+            );
+            context.emit_event(AppEvent::Warn {
+                message: format!(
+                    "Scan persistence failed (continuing with JSON output): {}",
+                    e
+                ),
+            });
+        }
     }
 
     let ai_result = if context.ai_settings().enabled {
@@ -81,8 +101,14 @@ pub(crate) async fn load_test_summary(
     interface: Option<String>,
     iterations: u32,
     concurrency: usize,
-    _context: &AppContext,
+    context: &AppContext,
 ) -> Result<LoadTestSummary> {
+    context.emit_event(AppEvent::Info {
+        message: format!(
+            "Starting load test (iterations={}, concurrency={})",
+            iterations, concurrency
+        ),
+    });
     crate::log_stderr!(
         "NEXUS Core Engine — Load Test v{} (iterations={}, concurrency={})",
         env!("CARGO_PKG_VERSION"),
@@ -91,7 +117,14 @@ pub(crate) async fn load_test_summary(
     );
 
     let selected_interface = select_interface(interface)?;
-    run_load_test(&selected_interface, iterations, concurrency).await
+    let summary = run_load_test(&selected_interface, iterations, concurrency).await?;
+    context.emit_event(AppEvent::Info {
+        message: format!(
+            "Load test completed: successful_scans={}, failed_scans={}",
+            summary.successful_scans, summary.failed_scans
+        ),
+    });
+    Ok(summary)
 }
 
 fn select_interface(interface: Option<String>) -> Result<crate::InterfaceInfo> {
