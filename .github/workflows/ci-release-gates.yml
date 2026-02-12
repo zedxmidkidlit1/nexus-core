@@ -9,8 +9,42 @@ on:
   pull_request:
 
 jobs:
-  quality:
-    name: Fmt, Clippy, Tests, Benchmark Smoke
+  quality-linux:
+    name: Fmt, Clippy, Tests, Smoke (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-dejavu-core
+
+      - name: Cargo fmt (check)
+        run: cargo fmt --all -- --check
+
+      - name: Cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Cargo test
+        run: cargo test --all-targets --all-features
+
+      - name: Release smoke checks
+        run: |
+          cargo build --release
+          ./target/release/nexus-core --version
+          ./target/release/nexus-core --help
+          ./target/release/nexus-core ai-check
+
+  windows-link-check:
+    name: Windows Build/Link Check (Npcap SDK)
     runs-on: windows-latest
 
     steps:
@@ -81,18 +115,9 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
-      - name: Cargo fmt (check)
-        run: cargo fmt --all -- --check
+      - name: Cargo check
+        run: cargo check --all-targets --all-features
 
-      - name: Cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Cargo test
-        run: cargo test --all-targets --all-features
-
-      - name: Benchmark smoke
-        shell: pwsh
-        run: ./scripts/benchmark.ps1 -Mode smoke -Iterations 1
+      - name: Cargo test (build only)
+        run: cargo test --all-targets --all-features --no-run
