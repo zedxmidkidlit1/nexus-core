@@ -22,6 +22,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $zipPath = Join-Path $env:RUNNER_TEMP "npcap-sdk.zip"
+          $extractRoot = Join-Path $env:RUNNER_TEMP "npcap-sdk-extract"
           $urls = @(
             "https://npcap.com/dist/npcap-sdk-1.13.zip",
             "https://npcap.com/dist/npcap-sdk.zip"
@@ -42,24 +43,35 @@ jobs:
             throw "Failed to download Npcap SDK from known URLs."
           }
 
-          Expand-Archive -Path $zipPath -DestinationPath "C:\" -Force
-          $sdkRoots = Get-ChildItem -Path "C:\" -Directory |
-            Where-Object { $_.Name -like "npcap-sdk*" }
-          if (-not $sdkRoots) {
-            throw "Npcap SDK extraction folder not found under C:\\."
+          if (Test-Path $extractRoot) {
+            Remove-Item -Path $extractRoot -Recurse -Force
           }
+          New-Item -Path $extractRoot -ItemType Directory | Out-Null
+          Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
 
           $packetLib = $null
-          foreach ($root in $sdkRoots) {
-            $candidate = Get-ChildItem -Path $root.FullName -Recurse -Filter "Packet.lib" -ErrorAction SilentlyContinue |
-              Select-Object -First 1
-            if ($candidate) {
-              $packetLib = $candidate
-              break
+          $candidate = Get-ChildItem -Path $extractRoot -Recurse -Filter "Packet.lib" -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\Lib\\x64\\Packet\.lib$" } |
+            Select-Object -First 1
+          if ($candidate) {
+            $packetLib = $candidate
+          }
+
+          if (-not $packetLib) {
+            $knownPacketLibPaths = @(
+              "C:\\npcap-sdk\\Lib\\x64\\Packet.lib",
+              "C:\\Program Files\\Npcap\\SDK\\Lib\\x64\\Packet.lib"
+            )
+            foreach ($knownPath in $knownPacketLibPaths) {
+              if (Test-Path $knownPath) {
+                $packetLib = Get-Item $knownPath
+                break
+              }
             }
           }
+
           if (-not $packetLib) {
-            throw "Packet.lib not found after Npcap SDK extraction."
+            throw "Packet.lib not found after Npcap SDK extraction. Checked: $extractRoot"
           }
 
           $libDir = $packetLib.Directory.FullName
