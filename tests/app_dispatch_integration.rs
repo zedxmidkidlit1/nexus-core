@@ -4,8 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use nexus_core::database::{Database, queries::insert_scan};
 use nexus_core::{
-    AiMode, AiSettings, AppContext, AppEvent, CliCommand, EventHook, HostInfo, OutputHook,
-    ScanResult, execute_command_with_context,
+    AiMode, AiSettings, AppCommandResult, AppContext, AppEvent, CliCommand, EventHook, HostInfo,
+    OutputHook, ScanResult, execute_command_typed, execute_command_with_context,
 };
 
 type CapturedLines = Arc<Mutex<Vec<String>>>;
@@ -172,6 +172,86 @@ async fn ai_insights_reads_from_context_db_path_and_outputs_json() {
     assert!(parsed.get("health").is_some());
     assert!(parsed.get("security").is_some());
     assert!(parsed.get("device_distribution").is_some());
+
+    let _ = std::fs::remove_file(db_path);
+}
+
+#[tokio::test]
+async fn typed_dispatch_returns_expected_help_version_interfaces_variants() {
+    let (context, _lines) = make_test_context(None);
+
+    let help = execute_command_typed(CliCommand::Help, &context)
+        .await
+        .expect("help should succeed");
+    assert!(matches!(help, AppCommandResult::HelpText(text) if text.contains("Usage:")));
+
+    let version = execute_command_typed(CliCommand::Version, &context)
+        .await
+        .expect("version should succeed");
+    assert!(
+        matches!(version, AppCommandResult::VersionText(text) if text.starts_with("nexus-core "))
+    );
+
+    let interfaces = execute_command_typed(CliCommand::Interfaces, &context)
+        .await
+        .expect("interfaces should succeed");
+    assert!(matches!(interfaces, AppCommandResult::Interfaces(_)));
+}
+
+#[tokio::test]
+async fn typed_dispatch_returns_aicheck_variant() {
+    let (context, _lines) = make_test_context(None);
+    let result = execute_command_typed(CliCommand::AiCheck, &context)
+        .await
+        .expect("ai-check should succeed");
+
+    match result {
+        AppCommandResult::AiCheck(report) => {
+            assert!(!report.ai_enabled);
+            assert_eq!(report.mode, AiMode::Disabled);
+            assert!(report.overall_ok);
+        }
+        _ => panic!("expected AppCommandResult::AiCheck"),
+    }
+}
+
+#[tokio::test]
+async fn typed_dispatch_returns_aiinsights_variant_with_seeded_db() {
+    let db_path = unique_temp_db_path("nexus_ai_insights_typed");
+    let db = Database::new(db_path.clone()).expect("db should initialize");
+    {
+        let conn = db.connection();
+        let conn = conn
+            .lock()
+            .expect("database lock should not be poisoned for insert");
+        let mut host = HostInfo::new(
+            "192.168.60.10".to_string(),
+            "AA:BB:CC:DD:EE:60".to_string(),
+            "UNKNOWN".to_string(),
+            "ARP+ICMP".to_string(),
+        );
+        host.risk_score = 20;
+        let scan = ScanResult {
+            interface_name: "eth0".to_string(),
+            local_ip: "192.168.60.1".to_string(),
+            local_mac: "00:11:22:33:44:55".to_string(),
+            subnet: "192.168.60.0/24".to_string(),
+            scan_method: "Active ARP + ICMP + TCP".to_string(),
+            arp_discovered: 1,
+            icmp_discovered: 1,
+            total_hosts: 1,
+            scan_duration_ms: 1000,
+            active_hosts: vec![host],
+        };
+        insert_scan(&conn, &scan).expect("test scan should persist");
+    }
+    drop(db);
+
+    let (context, _lines) = make_test_context(Some(db_path.clone()));
+    let result = execute_command_typed(CliCommand::AiInsights, &context)
+        .await
+        .expect("ai-insights should succeed");
+    assert!(matches!(result, AppCommandResult::AiInsights(_)));
 
     let _ = std::fs::remove_file(db_path);
 }

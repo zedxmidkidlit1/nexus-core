@@ -193,6 +193,28 @@ Troubleshooting:
 - If cloud mode fails with configuration error, set `NEXUS_AI_GEMINI_API_KEY`
 - Keep `NEXUS_AI_CLOUD_ALLOW_SENSITIVE=false` for default redaction safety
 
+## Library Embedding (Typed API)
+
+The core engine now exposes a reusable app layer for UI/desktop integrations:
+
+- `execute_command_typed(...)` for strongly typed command results
+- `AppContext` for runtime injection (`db_path`, `AiSettings`, output hook, event hook)
+- `AppEvent` stream for progress and operational signals (`scan_phase`, `scan_persisted`, `info`, `warn`, `error`)
+
+```rust
+use std::sync::Arc;
+use nexus_core::{AppContext, AppEvent, CliCommand, execute_command_typed};
+
+let context = AppContext::from_env()
+    .with_output_hook(Arc::new(|line| println!("OUT: {}", line)))
+    .with_event_hook(Arc::new(|event: &AppEvent| println!("EVENT: {:?}", event)));
+
+let result = execute_command_typed(CliCommand::AiCheck, &context).await?;
+println!("Typed result: {:?}", result);
+```
+
+For legacy CLI-compatible behavior (text/JSON lines), use `execute_command_with_context(...)` or `run_with_context(...)`.
+
 ## Release Hardening & Benchmarking (v0.5)
 
 - `Cargo.toml` includes hardened release settings under `[profile.release]`:
@@ -252,8 +274,10 @@ NEXUS-core/
 ├── .env.example            # Runtime env template (AI + scan tuning)
 ├── build.rs                # Npcap SDK detection (Windows)
 ├── src/
-│   ├── main.rs             # CLI entry point (5-phase scan pipeline)
-│   ├── lib.rs              # Library exports
+│   ├── main.rs             # Thin CLI bootstrap (delegates to library app layer)
+│   ├── lib.rs              # Library exports (scanner + reusable app API)
+│   ├── app.rs              # Typed command execution + context hooks (output/events)
+│   ├── cli.rs              # CLI argument parsing + command model
 │   ├── models.rs           # Core data models (ScanResult, HostInfo, etc.)
 │   ├── config.rs           # Configuration constants & tuning parameters
 │   ├── scanner/
