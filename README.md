@@ -200,6 +200,7 @@ The core engine now exposes a reusable app layer for UI/desktop integrations:
 - `execute_command_typed(...)` for strongly typed command results
 - `AppContext` for runtime injection (`db_path`, `AiSettings`, output hook, event hook)
 - `AppEvent` stream for progress and operational signals (`scan_phase`, `scan_persisted`, `info`, `warn`, `error`)
+- cooperative cancellation via `AppContext::cancel()` / `AppContext::is_cancelled()`
 
 ```rust
 use std::sync::Arc;

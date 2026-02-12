@@ -255,3 +255,46 @@ async fn typed_dispatch_returns_aiinsights_variant_with_seeded_db() {
 
     let _ = std::fs::remove_file(db_path);
 }
+
+#[tokio::test]
+async fn cancelled_load_test_returns_error_without_running_network_path() {
+    let (context, _lines, events) = make_test_context_with_events(None);
+    context.cancel();
+
+    let err = execute_command_typed(
+        CliCommand::LoadTest {
+            interface: None,
+            iterations: 2,
+            concurrency: 1,
+        },
+        &context,
+    )
+    .await
+    .expect_err("cancelled load-test should fail fast");
+    assert!(err.to_string().contains("Operation cancelled"));
+
+    let captured = events.lock().expect("event lock should not be poisoned");
+    assert!(
+        captured
+            .iter()
+            .any(|event| matches!(event, AppEvent::Cancelled { stage } if stage == "load-test"))
+    );
+}
+
+#[tokio::test]
+async fn cancelled_scan_returns_error_without_interface_selection() {
+    let (context, _lines, events) = make_test_context_with_events(None);
+    context.cancel();
+
+    let err = execute_command_typed(CliCommand::Scan { interface: None }, &context)
+        .await
+        .expect_err("cancelled scan should fail fast");
+    assert!(err.to_string().contains("Operation cancelled"));
+
+    let captured = events.lock().expect("event lock should not be poisoned");
+    assert!(
+        captured
+            .iter()
+            .any(|event| matches!(event, AppEvent::Cancelled { stage } if stage == "scan"))
+    );
+}

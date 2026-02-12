@@ -10,6 +10,7 @@ pub(crate) fn collect_interfaces() -> Vec<String> {
 }
 
 pub(crate) async fn ai_check_report(context: &AppContext) -> Result<crate::AiCheckReport> {
+    ensure_not_cancelled(context, "ai-check")?;
     context.emit_event(AppEvent::Info {
         message: "Running AI provider diagnostics".to_string(),
     });
@@ -19,6 +20,7 @@ pub(crate) async fn ai_check_report(context: &AppContext) -> Result<crate::AiChe
 pub(crate) async fn ai_insights_result(
     context: &AppContext,
 ) -> Result<crate::HybridInsightsResult> {
+    ensure_not_cancelled(context, "ai-insights")?;
     context.emit_event(AppEvent::Info {
         message: "Loading latest persisted scan for AI insights".to_string(),
     });
@@ -51,6 +53,7 @@ pub(crate) async fn scan_with_ai(
     interface: Option<String>,
     context: &AppContext,
 ) -> Result<ScanWithAi> {
+    ensure_not_cancelled(context, "scan")?;
     crate::log_stderr!(
         "NEXUS Core Engine — Network Discovery v{}",
         env!("CARGO_PKG_VERSION")
@@ -103,6 +106,7 @@ pub(crate) async fn load_test_summary(
     concurrency: usize,
     context: &AppContext,
 ) -> Result<LoadTestSummary> {
+    ensure_not_cancelled(context, "load-test")?;
     context.emit_event(AppEvent::Info {
         message: format!(
             "Starting load test (iterations={}, concurrency={})",
@@ -117,7 +121,8 @@ pub(crate) async fn load_test_summary(
     );
 
     let selected_interface = select_interface(interface)?;
-    let summary = run_load_test(&selected_interface, iterations, concurrency).await?;
+    let summary =
+        run_load_test(&selected_interface, iterations, concurrency, Some(context)).await?;
     context.emit_event(AppEvent::Info {
         message: format!(
             "Load test completed: successful_scans={}, failed_scans={}",
@@ -125,6 +130,16 @@ pub(crate) async fn load_test_summary(
         ),
     });
     Ok(summary)
+}
+
+fn ensure_not_cancelled(context: &AppContext, stage: &str) -> Result<()> {
+    if context.is_cancelled() {
+        context.emit_event(AppEvent::Cancelled {
+            stage: stage.to_string(),
+        });
+        return Err(anyhow::anyhow!("Operation cancelled ({})", stage));
+    }
+    Ok(())
 }
 
 fn select_interface(interface: Option<String>) -> Result<crate::InterfaceInfo> {

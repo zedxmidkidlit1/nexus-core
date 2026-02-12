@@ -22,6 +22,7 @@ pub(crate) async fn run_load_test(
     interface: &InterfaceInfo,
     iterations: u32,
     concurrency: usize,
+    context: Option<&AppContext>,
 ) -> Result<LoadTestSummary> {
     let started = Instant::now();
     let mut remaining = iterations;
@@ -31,13 +32,15 @@ pub(crate) async fn run_load_test(
     let mut host_counts: Vec<usize> = Vec::new();
 
     while remaining > 0 {
+        ensure_not_cancelled(context, "load-test-loop")?;
         let batch_size = std::cmp::min(remaining as usize, concurrency);
         let mut batch = Vec::with_capacity(batch_size);
         for _ in 0..batch_size {
             let iface = interface.clone();
-            batch.push(tokio::spawn(
-                async move { scan_network(&iface, None).await },
-            ));
+            let ctx = context.cloned();
+            batch.push(tokio::spawn(async move {
+                scan_network(&iface, ctx.as_ref()).await
+            }));
         }
 
         for result in batch {
@@ -109,6 +112,7 @@ pub(crate) async fn scan_network(
     interface: &InterfaceInfo,
     context: Option<&AppContext>,
 ) -> Result<ScanResult> {
+    ensure_not_cancelled(context, "scan-init")?;
     let start_time = Instant::now();
     emit_scan_phase(context, "init", 5);
     let (subnet, ips) = calculate_subnet_ips(interface)?;
@@ -117,6 +121,7 @@ pub(crate) async fn scan_network(
     crate::log_stderr!("================================================");
 
     // Phase 1: Active ARP Scan
+    ensure_not_cancelled(context, "scan-arp")?;
     emit_scan_phase(context, "arp", 20);
     let arp_scan_handle = tokio::task::spawn_blocking({
         let interface = interface.clone();
@@ -149,6 +154,7 @@ pub(crate) async fn scan_network(
     let arp_count = arp_hosts.len();
 
     // Phase 2 & 3: Run ICMP ping and TCP probe in parallel for faster scanning
+    ensure_not_cancelled(context, "scan-tcp")?;
     emit_scan_phase(context, "tcp", 50);
     let (response_times_result, port_results_result) =
         tokio::join!(icmp_scan(&arp_hosts), tcp_probe_scan(&arp_hosts));
@@ -166,6 +172,7 @@ pub(crate) async fn scan_network(
 
     let snmp_is_enabled = snmp_enabled();
     let snmp_data = if snmp_is_enabled {
+        ensure_not_cancelled(context, "scan-snmp")?;
         emit_scan_phase(context, "snmp", 65);
         match snmp_enrich(&host_ips).await {
             Ok(data) => data,
@@ -190,6 +197,7 @@ pub(crate) async fn scan_network(
     };
 
     // Phase 5: DNS reverse lookup
+    ensure_not_cancelled(context, "scan-dns")?;
     emit_scan_phase(context, "dns", 80);
     let dns_hostnames = dns_scan(&host_ips).await;
 
@@ -332,4 +340,16 @@ fn emit_scan_phase(context: Option<&AppContext>, phase: &str, progress_pct: u8) 
             progress_pct,
         });
     }
+}
+
+fn ensure_not_cancelled(context: Option<&AppContext>, stage: &str) -> Result<()> {
+    if let Some(ctx) = context
+        && ctx.is_cancelled()
+    {
+        ctx.emit_event(AppEvent::Cancelled {
+            stage: stage.to_string(),
+        });
+        return Err(anyhow::anyhow!("Operation cancelled ({})", stage));
+    }
+    Ok(())
 }

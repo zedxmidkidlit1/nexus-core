@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::cli::{CliCommand, parse_cli_args, usage_text, version_text};
 use crate::command_handlers::{
@@ -18,6 +19,7 @@ pub struct AppContext {
     ai_settings: crate::AiSettings,
     output_hook: OutputHook,
     event_hook: EventHook,
+    cancel_flag: Arc<AtomicBool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -28,6 +30,7 @@ pub enum AppEvent {
     Error { message: String },
     ScanPhase { phase: String, progress_pct: u8 },
     ScanPersisted { scan_id: i64, path: String },
+    Cancelled { stage: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,6 +78,7 @@ impl AppContext {
             ai_settings: crate::AiSettings::from_env(),
             output_hook: Arc::new(|line| println!("{}", line)),
             event_hook: Arc::new(|_| {}),
+            cancel_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -112,6 +116,18 @@ impl AppContext {
 
     pub fn emit_event(&self, event: AppEvent) {
         (self.event_hook)(&event);
+    }
+
+    pub fn cancel(&self) {
+        self.cancel_flag.store(true, Ordering::Relaxed);
+    }
+
+    pub fn reset_cancel(&self) {
+        self.cancel_flag.store(false, Ordering::Relaxed);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel_flag.load(Ordering::Relaxed)
     }
 }
 
@@ -304,5 +320,15 @@ mod tests {
                 message: "hello".to_string()
             }
         );
+    }
+
+    #[test]
+    fn context_cancel_flag_can_be_set_and_reset() {
+        let context = AppContext::from_env();
+        assert!(!context.is_cancelled());
+        context.cancel();
+        assert!(context.is_cancelled());
+        context.reset_cancel();
+        assert!(!context.is_cancelled());
     }
 }
