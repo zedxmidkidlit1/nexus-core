@@ -11,6 +11,38 @@ function Add-CandidateUrl {
     }
 }
 
+function Select-BestPacketLib {
+    param(
+        [System.IO.FileInfo[]]$Candidates
+    )
+    if (-not $Candidates -or $Candidates.Count -eq 0) {
+        return $null
+    }
+
+    $scored = foreach ($candidate in $Candidates) {
+        $path = $candidate.FullName.ToLowerInvariant()
+        $score =
+            if ($path -match '\\lib\\x64\\packet\.lib$') { 0 }
+            elseif ($path -match '\\lib\\amd64\\packet\.lib$') { 1 }
+            elseif ($path -match '\\x64\\packet\.lib$') { 2 }
+            elseif ($path -match '\\lib\\packet\.lib$') { 3 }
+            else { 4 }
+
+        $hasWpcap = Test-Path (Join-Path $candidate.Directory.FullName "wpcap.lib")
+        [pscustomobject]@{
+            Candidate = $candidate
+            Score = $score
+            HasWpcap = $hasWpcap
+            PathLength = $candidate.FullName.Length
+        }
+    }
+
+    # Prefer x64-like paths, then directories that also contain wpcap.lib.
+    return ($scored |
+        Sort-Object -Property Score, @{ Expression = { if ($_.HasWpcap) { 0 } else { 1 } } }, PathLength |
+        Select-Object -First 1).Candidate
+}
+
 $candidateUrls = [System.Collections.Generic.List[string]]::new()
 
 # Discover current SDK links from official pages first.
@@ -72,14 +104,15 @@ if (Test-Path $extractRoot) {
 New-Item -Path $extractRoot -ItemType Directory | Out-Null
 Expand-Archive -Path $zipPath -DestinationPath $extractRoot -Force
 
-$packetLib = Get-ChildItem -Path $extractRoot -Recurse -Filter "Packet.lib" -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -match "\\Lib\\x64\\Packet\.lib$" } |
-    Select-Object -First 1
+$packetLibCandidates = @(Get-ChildItem -Path $extractRoot -Recurse -Filter "Packet.lib" -ErrorAction SilentlyContinue)
+$packetLib = Select-BestPacketLib -Candidates $packetLibCandidates
 
 if (-not $packetLib) {
     $knownPacketLibPaths = @(
         "C:\\npcap-sdk\\Lib\\x64\\Packet.lib",
-        "C:\\Program Files\\Npcap\\SDK\\Lib\\x64\\Packet.lib"
+        "C:\\Program Files\\Npcap\\SDK\\Lib\\x64\\Packet.lib",
+        "C:\\npcap-sdk\\Lib\\Packet.lib",
+        "C:\\Program Files\\Npcap\\SDK\\Lib\\Packet.lib"
     )
     foreach ($knownPath in $knownPacketLibPaths) {
         if (Test-Path $knownPath) {
@@ -90,6 +123,14 @@ if (-not $packetLib) {
 }
 
 if (-not $packetLib) {
+    Write-Host "DEBUG: discovered Packet.lib candidates:"
+    if ($packetLibCandidates.Count -gt 0) {
+        foreach ($candidate in $packetLibCandidates) {
+            Write-Host " - $($candidate.FullName)"
+        }
+    } else {
+        Write-Host " - none"
+    }
     throw "Packet.lib not found after Npcap SDK extraction. Checked: $extractRoot"
 }
 
