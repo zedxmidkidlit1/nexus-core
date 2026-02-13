@@ -1,5 +1,7 @@
 # Rust / Cargo
 /target/
+**/target/
+crates/*/Cargo.lock
 **/*.rs.bk
 
 # IDE / Editor
