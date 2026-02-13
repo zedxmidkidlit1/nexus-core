@@ -22,6 +22,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - TBD
 
+## [0.1.2] - 2026-02-13
+
+### Added
+- Cargo workspace split with dedicated engine crate at `crates/nexus-engine` (`nexus-core`).
+- Root CLI package (`nexus-cli`) as a thin entrypoint with binary name `nexus-core`.
+- Engine-local `tests/` and `examples/` under `crates/nexus-engine/`.
+
+### Changed
+- Decoupled command model from CLI parser by introducing engine-facing `AppCommand`.
+- Introduced CLI adapter boundary (`cli_adapter`) to isolate argument parsing and Ctrl+C wiring from execution core.
+- CI gates updated to workspace-scoped checks/tests/clippy and release build now targets `nexus-cli`.
+- Benchmark/package scripts now build `-p nexus-cli`.
+- `README.md` and `PROJECTCONTEXT.md` updated for the workspace architecture.
+
+### Removed
+- Legacy duplicate root engine sources, root `examples/`, root `tests/`, and obsolete root `build.rs`.
+
 ## [0.1.1] - 2026-02-12
 
 ### Added
@@ -60,6 +77,7 @@ Initial public baseline release of `nexus-core`.
 ### Security
 - No specific security fix is announced in this initial baseline release.
 
-[Unreleased]: https://github.com/zedxmidkidlit1/nexus-core/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/zedxmidkidlit1/nexus-core/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/zedxmidkidlit1/nexus-core/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/zedxmidkidlit1/nexus-core/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/zedxmidkidlit1/nexus-core/releases/tag/v0.1.0
