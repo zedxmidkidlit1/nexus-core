@@ -1,6 +1,8 @@
 # 🌐 NEXUS Core Engine
 
-**`nexus-core` v0.1.0** — Standalone Rust CLI for network discovery, security analysis, and health monitoring.
+**Workspace (v0.1.x)** with:
+- `nexus-cli` (root package) — CLI entrypoint
+- `nexus-core` (`crates/nexus-engine`) — reusable engine library for CLI and upcoming Tauri UI
 
 This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../STMAHM-main/) for independent development and upgrade work. The full Tauri + React UI lives in the original repository.
 
@@ -128,46 +130,46 @@ This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../S
 ## Quick Start
 
 ```bash
-# Build
-cargo build
+# Build full workspace
+cargo build --workspace
 
-# Run CLI scanner (outputs JSON to stdout)
-cargo run
+# Run CLI scanner (root package: nexus-cli, binary: nexus-core)
+cargo run -p nexus-cli -- scan
 
 # Show CLI help / version
-cargo run -- --help
-cargo run -- --version
+cargo run -p nexus-cli -- --help
+cargo run -p nexus-cli -- --version
 
 # List valid scan interfaces
-cargo run -- interfaces
+cargo run -p nexus-cli -- interfaces
 
 # Scan a specific interface
-cargo run -- scan --interface "<INTERFACE_NAME>"
+cargo run -p nexus-cli -- scan --interface "<INTERFACE_NAME>"
 
 # Run built-in load test mode (batch scan runner)
-cargo run -- load-test --interface "<INTERFACE_NAME>" --iterations 10 --concurrency 2
+cargo run -p nexus-cli -- load-test --interface "<INTERFACE_NAME>" --iterations 10 --concurrency 2
 
 # Validate AI provider connectivity + model availability
-cargo run -- ai-check
+cargo run -p nexus-cli -- ai-check
 
 # Generate AI insights from latest persisted scan history
-cargo run -- ai-insights
+cargo run -p nexus-cli -- ai-insights
 
-# Enable optional PDF export backend
-cargo build --features pdf-export
+# Enable optional PDF export backend (engine crate)
+cargo build -p nexus-core --features pdf-export
 
-# Run tests
-cargo test --all-targets
+# Run workspace tests
+cargo test --workspace --all-targets
 
-# Run specific binary tests
-cargo run --bin test_alerts
-cargo run --bin test_insights
+# Run engine-specific binary tests
+cargo run -p nexus-core --bin test_alerts
+cargo run -p nexus-core --bin test_insights
 
 # Optional: run AI-augmented insights locally (Ollama)
-$env:NEXUS_AI_ENABLED="true"; $env:NEXUS_AI_MODE="local"; $env:NEXUS_AI_MODEL="qwen3:8b"; cargo run --bin test_insights
+$env:NEXUS_AI_ENABLED="true"; $env:NEXUS_AI_MODE="local"; $env:NEXUS_AI_MODEL="qwen3:8b"; cargo run -p nexus-core --bin test_insights
 
 # Lint
-cargo clippy --all-targets
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 ```
 
 When `NEXUS_AI_ENABLED=true`, `scan` JSON output includes an optional top-level `ai` block with provider/model metadata, overlay text, and fallback error details.
@@ -271,72 +273,17 @@ Core scanner behavior can now be tuned at runtime via environment variables:
 
 ```text
 NEXUS-core/
-├── Cargo.toml              # Package config (nexus-core)
-├── .env.example            # Runtime env template (AI + scan tuning)
-├── build.rs                # Npcap SDK detection (Windows)
+├── Cargo.toml                   # Workspace root + nexus-cli package
+├── build-cli.rs                 # CLI build script (root package)
 ├── src/
-│   ├── main.rs             # Thin CLI bootstrap (delegates to library app layer)
-│   ├── lib.rs              # Library exports (scanner + reusable app API)
-│   ├── app.rs              # Typed command execution + context hooks (output/events)
-│   ├── cli.rs              # CLI argument parsing + command model
-│   ├── models.rs           # Core data models (ScanResult, HostInfo, etc.)
-│   ├── config.rs           # Configuration constants & tuning parameters
-│   ├── scanner/
-│   │   ├── arp.rs          # Adaptive ARP scanning with early termination
-│   │   ├── icmp.rs         # ICMP ping + TTL-based OS fingerprinting
-│   │   ├── tcp.rs          # TCP port probing (default 5 common ports, configurable)
-│   │   ├── snmp.rs         # SNMP v2c enrichment (hostname, description, uptime)
-│   │   └── passive/
-│   │       ├── mdns.rs     # mDNS/DNS-SD passive discovery (9 service types)
-│   │       └── arp.rs      # Passive ARP traffic monitor
-│   ├── network/
-│   │   ├── device.rs       # Device type inference (15 types) + risk scoring
-│   │   ├── dns.rs          # Concurrent reverse DNS lookups
-│   │   ├── interface.rs    # Smart interface selection with scoring
-│   │   ├── subnet.rs       # Subnet calculation + centered scan windows
-│   │   ├── vendor.rs       # MAC vendor OUI lookup + randomized MAC detection
-│   │   └── subnet_tests.rs # Unit tests for subnet utilities
-│   ├── database/
-│   │   ├── connection.rs   # SQLite init + Arc<Mutex> thread safety
-│   │   ├── schema.rs       # 6 tables + backward-compatible migrations
-│   │   ├── queries.rs      # CRUD operations + transactional scan inserts
-│   │   ├── models.rs       # DB record structs + AlertType/AlertSeverity enums
-│   │   ├── encryption.rs   # AES-256-GCM + Argon2id KDF + legacy SHA-256 compat
-│   │   ├── encryption_tests.rs  # Encryption key consistency tests
-│   │   └── seed_cves.rs    # Embedded CVE database (~20 CVEs + port warnings)
-│   ├── alerts/
-│   │   ├── detector.rs     # Change detection (new/offline/risk/port/IP-change)
-│   │   └── types.rs        # 6 alert types + 4 severity levels
-│   ├── monitor/
-│   │   ├── watcher.rs      # Background scan loop + live change detection
-│   │   ├── events.rs       # 10 NetworkEvent types for frontend IPC
-│   │   └── passive_integration.rs  # mDNS/ARP listener helpers
-│   ├── ai/
-│   │   ├── mod.rs          # AI module entry + public re-exports
-│   │   ├── config.rs       # Env-driven AI runtime settings
-│   │   ├── types.rs        # AI mode/overlay/result shared types
-│   │   ├── prompt.rs       # Structured prompt construction
-│   │   ├── redaction.rs    # Cloud-safe digest/redaction pipeline
-│   │   ├── provider.rs     # Provider trait + response JSON parsing
-│   │   ├── router.rs       # Local/cloud/hybrid policy routing + fallback
-│   │   └── providers/
-│   │       ├── ollama.rs   # Ollama provider implementation
-│   │       └── gemini.rs   # Gemini provider implementation
-│   ├── insights/
-│   │   ├── health.rs       # 3-component health score (security/stability/compliance)
-│   │   ├── security.rs     # Per-device A–F security grading
-│   │   ├── distribution.rs # Device type + vendor distribution stats
-│   │   ├── recommendations.rs  # Actionable security advice (5 priority levels)
-│   │   └── vulnerability_filter.rs  # Context-aware CVE filtering
-│   ├── exports/
-│   │   ├── csv.rs          # Device + scan CSV export
-│   │   ├── json.rs         # Scan + topology JSON export
-│   │   └── pdf.rs          # Scan report + health report PDF generation
-│   ├── logging/
-│   │   └── macros.rs       # Convenience logging macros (tracing wrappers)
-│   └── bin/
-│       ├── test_alerts.rs  # Alert detection test binary
-│       └── test_insights.rs # Insights system test binary
+│   └── main.rs                  # CLI bootstrap (calls nexus_core::run_with_ctrl_c)
+├── crates/
+│   └── nexus-engine/
+│       ├── Cargo.toml           # Engine crate (`nexus-core`)
+│       ├── build.rs             # Npcap SDK detection (Windows engine build)
+│       ├── src/                 # Full engine modules (ai, scanner, monitor, db, exports, insights)
+│       ├── tests/               # Engine integration tests
+│       └── examples/            # Engine examples / test binaries
 ├── scripts/
 │   ├── ai-check.ps1        # AI provider diagnostics helper
 │   └── benchmark.ps1       # Release benchmark/load-test runner
@@ -378,4 +325,4 @@ NEXUS-core/
 | **NEXUS-core** (this) | Rust core engine — CLI development & upgrades |
 | **STMAHM-main**       | Full desktop app — Tauri v2 + React 19 UI     |
 
-After core engine upgrades are stable, changes will be integrated back into the main STMAHM project's `src/` directory and exposed via new Tauri commands.
+After core engine upgrades are stable, engine-side changes from `crates/nexus-engine` will be integrated into the main STMAHM project and exposed via Tauri commands.
