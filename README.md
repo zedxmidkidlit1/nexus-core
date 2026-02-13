@@ -1,6 +1,6 @@
-# 🌐 NEXUS Core Engine
+# 🌐 NEXUS Core Workspace
 
-**Workspace (v0.1.x)** with:
+**Workspace (v0.1.2)** with:
 - `nexus-cli` (`crates/nexus-cli`) — CLI entrypoint
 - `nexus-core` (`crates/nexus-core`) — reusable engine library for CLI and upcoming Tauri UI
 - `nexus-desktop` (`apps/nexus-desktop`, scaffold) — upcoming Tauri GUI app
@@ -171,10 +171,14 @@ $env:NEXUS_AI_ENABLED="true"; $env:NEXUS_AI_MODE="local"; $env:NEXUS_AI_MODEL="q
 
 # Lint
 cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+# Package release artifacts to dist/
+pwsh ./scripts/package.ps1
 ```
 
 When `NEXUS_AI_ENABLED=true`, `scan` JSON output includes an optional top-level `ai` block with provider/model metadata, overlay text, and fallback error details.
 CLI `scan` persists results to the local SQLite database by default, so `ai-insights` can analyze the latest stored scan session.
+No-argument runs show help (they do not auto-run a scan), and Windows users can use `scripts/run-nexus.cmd` for double-click-friendly launch behavior.
 
 ## AI Profiles (Local/Cloud/Hybrid)
 
@@ -288,16 +292,19 @@ NEXUS-core/
 ├── apps/
 │   └── nexus-desktop/           # Tauri GUI app scaffold
 ├── scripts/
-│   ├── ai-check.ps1        # AI provider diagnostics helper
-│   └── benchmark.ps1       # Release benchmark/load-test runner
+│   ├── ai-check.ps1             # AI provider diagnostics helper
+│   ├── benchmark.ps1            # Release benchmark/load-test runner
+│   ├── install-npcap-sdk.ps1    # CI helper for Windows Npcap SDK setup
+│   ├── package.ps1              # Copies release exe + docs to dist/
+│   └── run-nexus.cmd            # Windows helper wrapper (double-click friendly)
 └── .gitignore
 ```
 
 ---
 
-## 🚀 Roadmap Status (As of 2026-02-11)
+## 🚀 Roadmap Status (As of 2026-02-13)
 
-### Completed in v0.1.0
+### Completed through v0.1.2
 
 - [x] **Release hardening profile** — Tuned `[profile.release]` (`opt-level=3`, thin LTO, single codegen unit, strip symbols, panic abort)
 - [x] **Benchmark tooling + load-test mode** — Added `scripts/benchmark.ps1` and CLI `load-test` command with JSON summary
@@ -308,6 +315,10 @@ NEXUS-core/
 - [x] **Fix MonitoringStatus total count** — `devices_total` now reflects session-wide unique devices seen
 - [x] **Configurable SNMP community/timeout/port** — Runtime-configurable via environment variables
 - [x] **Hybrid AI provider integration** — Added policy-driven Ollama/Gemini routing with deterministic fallback and cloud-redaction default
+- [x] **Workspace split (engine + CLI crates)** — Engine moved to `crates/nexus-core`, CLI moved to `crates/nexus-cli`
+- [x] **App-command/API decoupling** — Added `AppCommand` and `cli_adapter` boundary for reusable execution core
+- [x] **CLI no-arg UX fix** — Running `nexus-core` with no arguments now shows help instead of starting scan
+- [x] **Windows launch helper** — Added `scripts/run-nexus.cmd` and package integration for double-click usage
 
 ### Remaining backlog
 
