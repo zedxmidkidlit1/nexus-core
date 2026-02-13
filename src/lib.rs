@@ -14,6 +14,7 @@ pub mod ai;
 pub mod alerts;
 pub mod app;
 pub mod cli;
+pub mod command;
 mod command_handlers;
 pub mod config;
 pub mod database;
@@ -37,6 +38,7 @@ pub use app::{
     run_with_ctrl_c,
 };
 pub use cli::{CliCommand, parse_cli_args, usage_text, version_text};
+pub use command::AppCommand;
 pub use config::*;
 pub use database::{
     AlertRecord, AlertSeverity, AlertType, Database, DeviceRecord, NetworkStats, ScanRecord,

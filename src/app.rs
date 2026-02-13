@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::cli::{CliCommand, parse_cli_args, usage_text, version_text};
+use crate::cli::{parse_cli_args, usage_text, version_text};
+use crate::command::AppCommand;
 use crate::command_handlers::{
     ai_check_report, ai_insights_result, collect_interfaces, load_test_summary, scan_with_ai,
 };
@@ -174,34 +175,34 @@ where
 }
 
 /// Execute a pre-parsed command. This is reusable for non-CLI entrypoints.
-pub async fn execute_command(command: CliCommand) -> Result<()> {
+pub async fn execute_command(command: AppCommand) -> Result<()> {
     let context = AppContext::from_env();
     execute_command_with_context(command, &context).await
 }
 
 /// Execute a pre-parsed command with an explicit execution context.
-pub async fn execute_command_with_context(command: CliCommand, context: &AppContext) -> Result<()> {
+pub async fn execute_command_with_context(command: AppCommand, context: &AppContext) -> Result<()> {
     let result = execute_command_typed(command, context).await?;
     emit_command_result(&result, context)
 }
 
 /// Execute a pre-parsed command and return a strongly-typed result payload.
 pub async fn execute_command_typed(
-    command: CliCommand,
+    command: AppCommand,
     context: &AppContext,
 ) -> Result<AppCommandResult> {
     match command {
-        CliCommand::Help => Ok(AppCommandResult::HelpText(usage_text())),
-        CliCommand::Version => Ok(AppCommandResult::VersionText(version_text())),
-        CliCommand::Interfaces => Ok(AppCommandResult::Interfaces(collect_interfaces())),
-        CliCommand::AiCheck => Ok(AppCommandResult::AiCheck(ai_check_report(context).await?)),
-        CliCommand::AiInsights => Ok(AppCommandResult::AiInsights(
+        AppCommand::Help => Ok(AppCommandResult::HelpText(usage_text())),
+        AppCommand::Version => Ok(AppCommandResult::VersionText(version_text())),
+        AppCommand::Interfaces => Ok(AppCommandResult::Interfaces(collect_interfaces())),
+        AppCommand::AiCheck => Ok(AppCommandResult::AiCheck(ai_check_report(context).await?)),
+        AppCommand::AiInsights => Ok(AppCommandResult::AiInsights(
             ai_insights_result(context).await?,
         )),
-        CliCommand::Scan { interface } => Ok(AppCommandResult::Scan(
+        AppCommand::Scan { interface } => Ok(AppCommandResult::Scan(
             scan_with_ai(interface, context).await?,
         )),
-        CliCommand::LoadTest {
+        AppCommand::LoadTest {
             interface,
             iterations,
             concurrency,
@@ -275,7 +276,7 @@ fn ai_payload_for_export(scan: &ScanWithAi) -> Option<&crate::HybridInsightsResu
 
 #[cfg(test)]
 mod tests {
-    use crate::{CliCommand, HostInfo, ScanResult};
+    use crate::{AppCommand, HostInfo, ScanResult};
     use std::sync::{Arc, Mutex};
 
     use super::{AppCommandResult, AppContext, AppEvent, execute_command_typed};
@@ -313,7 +314,7 @@ mod tests {
     #[tokio::test]
     async fn execute_command_typed_help_returns_help_variant() {
         let context = AppContext::from_env();
-        let result = execute_command_typed(CliCommand::Help, &context)
+        let result = execute_command_typed(AppCommand::Help, &context)
             .await
             .expect("typed command execution should succeed");
 

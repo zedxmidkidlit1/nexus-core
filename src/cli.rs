@@ -1,24 +1,10 @@
+use crate::command::AppCommand;
 use anyhow::Result;
 
 const DEFAULT_LOAD_TEST_ITERATIONS: u32 = 5;
 const DEFAULT_LOAD_TEST_CONCURRENCY: usize = 1;
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum CliCommand {
-    Scan {
-        interface: Option<String>,
-    },
-    LoadTest {
-        interface: Option<String>,
-        iterations: u32,
-        concurrency: usize,
-    },
-    AiCheck,
-    AiInsights,
-    Interfaces,
-    Help,
-    Version,
-}
+pub type CliCommand = AppCommand;
 
 pub fn version_text() -> String {
     format!("nexus-core {}", env!("CARGO_PKG_VERSION"))
@@ -86,7 +72,7 @@ fn parse_usize_arg(flag: &str, raw: &str) -> Result<usize> {
     })
 }
 
-pub fn parse_cli_args<I, S>(args: I) -> Result<CliCommand>
+pub fn parse_cli_args<I, S>(args: I) -> Result<AppCommand>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
@@ -102,8 +88,8 @@ where
     while let Some(arg) = iter.next() {
         let arg = arg.as_ref();
         match arg {
-            "-h" | "--help" => return Ok(CliCommand::Help),
-            "-V" | "--version" => return Ok(CliCommand::Version),
+            "-h" | "--help" => return Ok(AppCommand::Help),
+            "-V" | "--version" => return Ok(AppCommand::Version),
             "scan" | "interfaces" | "load-test" | "ai-check" | "ai-insights" => {
                 if command.as_deref().is_some_and(|existing| existing != arg) {
                     return Err(anyhow::anyhow!(
@@ -173,7 +159,7 @@ where
     let selected = command.as_deref();
     if selected.is_none() {
         if interface.is_none() && iterations.is_none() && concurrency.is_none() {
-            return Ok(CliCommand::Help);
+            return Ok(AppCommand::Help);
         }
         return Err(anyhow::anyhow!(
             "Missing command. Use one of: scan, load-test, ai-check, ai-insights, interfaces.\n\n{}",
@@ -189,9 +175,9 @@ where
                     usage_text()
                 ));
             }
-            Ok(CliCommand::Scan { interface })
+            Ok(AppCommand::Scan { interface })
         }
-        "load-test" => Ok(CliCommand::LoadTest {
+        "load-test" => Ok(AppCommand::LoadTest {
             interface,
             iterations: iterations.unwrap_or(DEFAULT_LOAD_TEST_ITERATIONS),
             concurrency: concurrency.unwrap_or(DEFAULT_LOAD_TEST_CONCURRENCY),
@@ -203,7 +189,7 @@ where
                     usage_text()
                 ));
             }
-            Ok(CliCommand::Interfaces)
+            Ok(AppCommand::Interfaces)
         }
         "ai-check" => {
             if interface.is_some() || iterations.is_some() || concurrency.is_some() {
@@ -212,7 +198,7 @@ where
                     usage_text()
                 ));
             }
-            Ok(CliCommand::AiCheck)
+            Ok(AppCommand::AiCheck)
         }
         "ai-insights" => {
             if interface.is_some() || iterations.is_some() || concurrency.is_some() {
@@ -221,7 +207,7 @@ where
                     usage_text()
                 ));
             }
-            Ok(CliCommand::AiInsights)
+            Ok(AppCommand::AiInsights)
         }
         _ => unreachable!(),
     }
