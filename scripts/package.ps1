@@ -18,7 +18,7 @@ if ($Clean -and (Test-Path $distDir)) {
 
 if (-not $SkipBuild) {
     Write-Host "Building release binary..."
-    cargo build --release | Out-Host
+    cargo build --release -p nexus-cli | Out-Host
 }
 
 if (-not (Test-Path $releaseExe)) {

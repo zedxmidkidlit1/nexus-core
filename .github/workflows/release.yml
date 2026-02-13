@@ -69,7 +69,7 @@ jobs:
         run: ./scripts/install-npcap-sdk.ps1
 
       - name: Build release binary
-        run: cargo build --release --locked --target ${{ matrix.target }}
+        run: cargo build --release --locked -p nexus-cli --target ${{ matrix.target }}
 
       - name: Package (Unix)
         if: matrix.package_ext == 'tar.gz'

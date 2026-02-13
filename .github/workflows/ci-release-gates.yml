@@ -46,10 +46,10 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Cargo test
-        run: cargo test --all-targets --all-features
+        run: cargo test --workspace --all-targets --all-features
 
       - name: Release smoke checks
         run: |
@@ -84,10 +84,10 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Cargo check
-        run: cargo check --all-targets --all-features
+        run: cargo check --workspace --all-targets --all-features
 
       - name: Cargo test (build only)
-        run: cargo test --all-targets --all-features --no-run
+        run: cargo test --workspace --all-targets --all-features --no-run
 
   macos-build-check:
     name: macOS Build Check (${{ matrix.label }})
@@ -131,7 +131,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Cargo check
-        run: cargo check --all-targets --all-features --target ${{ matrix.target }}
+        run: cargo check --workspace --all-targets --all-features --target ${{ matrix.target }}
 
       - name: Cargo test (build only)
-        run: cargo test --all-targets --all-features --target ${{ matrix.target }} --no-run
+        run: cargo test --workspace --all-targets --all-features --target ${{ matrix.target }} --no-run

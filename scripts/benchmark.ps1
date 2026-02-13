@@ -17,7 +17,7 @@ if ($Concurrency -le 0) {
 }
 
 Write-Host "Building release binary..."
-cargo build --release | Out-Host
+cargo build --release -p nexus-cli | Out-Host
 
 $exe = Join-Path (Get-Location) "target\release\nexus-core.exe"
 if (-not (Test-Path $exe)) {
