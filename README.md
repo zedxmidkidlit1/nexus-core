@@ -1,8 +1,9 @@
 # 🌐 NEXUS Core Engine
 
 **Workspace (v0.1.x)** with:
-- `nexus-cli` (root package) — CLI entrypoint
-- `nexus-core` (`crates/nexus-engine`) — reusable engine library for CLI and upcoming Tauri UI
+- `nexus-cli` (`crates/nexus-cli`) — CLI entrypoint
+- `nexus-core` (`crates/nexus-core`) — reusable engine library for CLI and upcoming Tauri UI
+- `nexus-desktop` (`apps/nexus-desktop`, scaffold) — upcoming Tauri GUI app
 
 This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../STMAHM-main/) for independent development and upgrade work. The full Tauri + React UI lives in the original repository.
 
@@ -133,7 +134,7 @@ This is the **core engine** extracted from the [NEXUS Desktop App (STMAHM)](../S
 # Build full workspace
 cargo build --workspace
 
-# Run CLI scanner (root package: nexus-cli, binary: nexus-core)
+# Run CLI scanner (crate: nexus-cli, binary: nexus-core)
 cargo run -p nexus-cli -- scan
 
 # Show CLI help / version
@@ -273,17 +274,19 @@ Core scanner behavior can now be tuned at runtime via environment variables:
 
 ```text
 NEXUS-core/
-├── Cargo.toml                   # Workspace root + nexus-cli package
-├── build-cli.rs                 # CLI build script (root package)
-├── src/
-│   └── main.rs                  # CLI bootstrap (calls nexus_core::run_with_ctrl_c)
+├── Cargo.toml                   # Virtual workspace root
 ├── crates/
-│   └── nexus-engine/
-│       ├── Cargo.toml           # Engine crate (`nexus-core`)
-│       ├── build.rs             # Npcap SDK detection (Windows engine build)
-│       ├── src/                 # Full engine modules (ai, scanner, monitor, db, exports, insights)
-│       ├── tests/               # Engine integration tests
-│       └── examples/            # Engine examples / test binaries
+│   ├── nexus-core/
+│   │   ├── Cargo.toml           # Engine crate (`nexus-core`)
+│   │   ├── build.rs             # Npcap SDK detection (Windows engine build)
+│   │   ├── src/                 # Full engine modules (ai, scanner, monitor, db, exports, insights)
+│   │   ├── tests/               # Engine integration tests
+│   │   └── examples/            # Engine examples / test binaries
+│   └── nexus-cli/
+│       ├── Cargo.toml           # CLI crate (`nexus-cli`)
+│       └── src/main.rs          # Thin CLI bootstrap
+├── apps/
+│   └── nexus-desktop/           # Tauri GUI app scaffold
 ├── scripts/
 │   ├── ai-check.ps1        # AI provider diagnostics helper
 │   └── benchmark.ps1       # Release benchmark/load-test runner
@@ -325,4 +328,4 @@ NEXUS-core/
 | **NEXUS-core** (this) | Rust core engine — CLI development & upgrades |
 | **STMAHM-main**       | Full desktop app — Tauri v2 + React 19 UI     |
 
-After core engine upgrades are stable, engine-side changes from `crates/nexus-engine` will be integrated into the main STMAHM project and exposed via Tauri commands.
+After core engine upgrades are stable, engine-side changes from `crates/nexus-core` will be integrated into the main STMAHM project and exposed via Tauri commands.

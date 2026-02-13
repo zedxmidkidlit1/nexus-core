@@ -8,19 +8,19 @@ Branch: `main`
 
 This repository is now a Cargo workspace with a split between CLI and engine:
 
-- Root package: `nexus-cli`
-  - `Cargo.toml` at repo root
-  - Binary: `nexus-core` from `src/main.rs`
+- Root: virtual workspace (`Cargo.toml` at repo root)
+- Member crate: `nexus-cli`
+  - Path: `crates/nexus-cli`
+  - Binary: `nexus-core` from `crates/nexus-cli/src/main.rs`
   - Purpose: CLI entrypoint only
 - Member crate: `nexus-core`
-  - Path: `crates/nexus-engine`
+  - Path: `crates/nexus-core`
   - Purpose: reusable engine library for CLI and upcoming Tauri integration
-
-Root `src/` now intentionally contains only the CLI bootstrap (`src/main.rs`).
+- App scaffold: `apps/nexus-desktop` (Tauri GUI skeleton)
 
 ## 2) Runtime Surfaces
 
-CLI commands (parsed by engine crate `crates/nexus-engine/src/cli.rs`):
+CLI commands (parsed by engine crate `crates/nexus-core/src/cli.rs`):
 
 - `nexus-core scan [--interface <NAME>]`
 - `nexus-core load-test [--interface <NAME>] [--iterations <N>] [--concurrency <N>]`
@@ -39,7 +39,7 @@ Current CLI UX:
 
 Engine command model is decoupled from CLI parsing:
 
-- Canonical command type: `AppCommand` (`crates/nexus-engine/src/command.rs`)
+- Canonical command type: `AppCommand` (`crates/nexus-core/src/command.rs`)
 - CLI parser returns `AppCommand`
 - Reusable app execution layer:
   - `execute_command(...)`
@@ -55,7 +55,7 @@ Main integration types:
 
 ## 4) Core Engine Modules
 
-Location: `crates/nexus-engine/src/`
+Location: `crates/nexus-core/src/`
 
 - `scanner/` (ARP, ICMP, TCP, SNMP, passive scanners)
 - `network/` (interface selection, subnet, DNS, vendor/device inference)
@@ -80,7 +80,7 @@ Packaging scripts:
 
 Windows linking:
 
-- Engine crate keeps `crates/nexus-engine/build.rs` for Npcap `Packet.lib` lookup
+- Engine crate keeps `crates/nexus-core/build.rs` for Npcap `Packet.lib` lookup
 - CI and release workflows install Npcap SDK using `scripts/install-npcap-sdk.ps1`
 
 ## 6) CI/CD (Workspace-Aware)
@@ -107,17 +107,19 @@ Windows linking:
 
 ```text
 NEXUS-core/
-├── Cargo.toml                  # workspace root + nexus-cli package
-├── build-cli.rs                # root CLI build script
-├── src/
-│   └── main.rs                 # CLI bootstrap
+├── Cargo.toml                  # virtual workspace root
 ├── crates/
-│   └── nexus-engine/
-│       ├── Cargo.toml          # engine crate (`nexus-core`)
-│       ├── build.rs            # Npcap link-path detection for engine build
-│       ├── src/                # engine source modules
-│       ├── tests/              # engine integration tests
-│       └── examples/           # engine examples
+│   ├── nexus-core/
+│   │   ├── Cargo.toml          # engine crate (`nexus-core`)
+│   │   ├── build.rs            # Npcap link-path detection for engine build
+│   │   ├── src/                # engine source modules
+│   │   ├── tests/              # engine integration tests
+│   │   └── examples/           # engine examples
+│   └── nexus-cli/
+│       ├── Cargo.toml          # CLI crate (`nexus-cli`)
+│       └── src/main.rs         # CLI bootstrap
+├── apps/
+│   └── nexus-desktop/          # Tauri GUI scaffold
 ├── scripts/
 ├── .github/workflows/
 ├── README.md

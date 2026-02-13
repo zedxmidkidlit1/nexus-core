@@ -25,9 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.2] - 2026-02-13
 
 ### Added
-- Cargo workspace split with dedicated engine crate at `crates/nexus-engine` (`nexus-core`).
+- Cargo workspace split with dedicated engine crate at `crates/nexus-core` (`nexus-core`).
 - Root CLI package (`nexus-cli`) as a thin entrypoint with binary name `nexus-core`.
-- Engine-local `tests/` and `examples/` under `crates/nexus-engine/`.
+- Engine-local `tests/` and `examples/` under `crates/nexus-core/`.
 
 ### Changed
 - Decoupled command model from CLI parser by introducing engine-facing `AppCommand`.
