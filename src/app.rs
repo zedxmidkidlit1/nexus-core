@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::cli::{parse_cli_args, usage_text, version_text};
+use crate::cli::{usage_text, version_text};
 use crate::command::AppCommand;
 use crate::command_handlers::{
     ai_check_report, ai_insights_result, collect_interfaces, load_test_summary, scan_with_ai,
@@ -132,46 +132,31 @@ impl AppContext {
     }
 }
 
-/// Run the app by parsing CLI-style args and dispatching the command.
+/// Compatibility wrapper for CLI adapter entrypoint.
 pub async fn run<I, S>(args: I) -> Result<()>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let context = AppContext::from_env();
-    run_with_context(args, &context).await
+    crate::cli_adapter::run(args).await
 }
 
-/// Run the app with Ctrl+C cancellation wired into the provided context.
-/// This is intended for CLI-style entrypoints.
+/// Compatibility wrapper for CLI adapter entrypoint.
 pub async fn run_with_ctrl_c<I, S>(args: I, context: &AppContext) -> Result<()>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let cancel_context = context.clone();
-    let signal_task = tokio::spawn(async move {
-        if tokio::signal::ctrl_c().await.is_ok() {
-            cancel_context.cancel();
-            crate::log_stderr!(
-                "Cancellation requested (Ctrl+C). Stopping after current scan phase..."
-            );
-        }
-    });
-
-    let run_result = run_with_context(args, context).await;
-    signal_task.abort();
-    run_result
+    crate::cli_adapter::run_with_ctrl_c(args, context).await
 }
 
-/// Run the app with an explicit context (db path, AI settings, and output hooks).
+/// Compatibility wrapper for CLI adapter entrypoint.
 pub async fn run_with_context<I, S>(args: I, context: &AppContext) -> Result<()>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
-    let command = parse_cli_args(args)?;
-    execute_command_with_context(command, context).await
+    crate::cli_adapter::run_with_context(args, context).await
 }
 
 /// Execute a pre-parsed command. This is reusable for non-CLI entrypoints.

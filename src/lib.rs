@@ -14,6 +14,7 @@ pub mod ai;
 pub mod alerts;
 pub mod app;
 pub mod cli;
+pub mod cli_adapter;
 pub mod command;
 mod command_handlers;
 pub mod config;
@@ -34,10 +35,10 @@ pub use ai::{
 pub use alerts::{Alert, detect_alerts, detect_alerts_without_baseline, has_high_priority_alerts};
 pub use app::{
     AppCommandResult, AppContext, AppEvent, EventHook, LoadTestSummary, OutputHook, ScanWithAi,
-    execute_command, execute_command_typed, execute_command_with_context, run, run_with_context,
-    run_with_ctrl_c,
+    execute_command, execute_command_typed, execute_command_with_context,
 };
 pub use cli::{CliCommand, parse_cli_args, usage_text, version_text};
+pub use cli_adapter::{run, run_with_context, run_with_ctrl_c};
 pub use command::AppCommand;
 pub use config::*;
 pub use database::{

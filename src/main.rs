@@ -13,7 +13,7 @@ async fn main() {
     }
 
     let context = nexus_core::AppContext::from_env();
-    let run_result = nexus_core::app::run_with_ctrl_c(std::env::args(), &context).await;
+    let run_result = nexus_core::run_with_ctrl_c(std::env::args(), &context).await;
 
     match run_result {
         Ok(()) => {}
