@@ -53,7 +53,7 @@ jobs:
 
       - name: Release smoke checks
         run: |
-          cargo build --release
+          cargo build --release -p nexus-cli
           ./target/release/nexus-core --version
           ./target/release/nexus-core --help
           ./target/release/nexus-core ai-check

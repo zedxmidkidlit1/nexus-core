@@ -1,34 +1,7 @@
-[package]
-name = "nexus-cli"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.93"
-build = "build-cli.rs"
-default-run = "nexus-core"
-autolib = false
-autobins = false
-autotests = false
-autoexamples = false
-autobenches = false
-description = "NEXUS CLI — command-line entrypoint for the NEXUS core engine"
-authors = ["Network Topology Mapper Team"]
-
 [workspace]
-members = ["crates/nexus-engine"]
+members = ["crates/nexus-core", "crates/nexus-cli"]
+default-members = ["crates/nexus-cli", "crates/nexus-core"]
 resolver = "3"
-
-[features]
-default = []
-pdf-export = ["nexus-core/pdf-export"]
-
-[dependencies]
-nexus-core = { path = "crates/nexus-engine" }
-tokio = { version = "1.49", features = ["full", "process"] }
-tracing = "0.1.44"
-
-[[bin]]
-name = "nexus-core"
-path = "src/main.rs"
 
 [profile.release]
 opt-level = 3

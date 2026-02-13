@@ -33,7 +33,7 @@ if ($Mode -eq "smoke") {
     $summary = [pscustomobject]@{
         mode                 = "smoke"
         version              = $versionOutput
-        usage_contains_scan  = ($helpOutput -join "`n") -match "nexus-core \[scan\]"
+        usage_contains_scan  = ($helpOutput -join "`n") -match "nexus-core scan"
         ai_check_mode        = [string]$aiCheckJson.mode
         ai_check_overall_ok  = [bool]$aiCheckJson.overall_ok
     }
